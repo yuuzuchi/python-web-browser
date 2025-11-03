@@ -53,7 +53,6 @@ class URL:
     def request(self, headers: dict={}) -> str:
         """Performs a **GET** request using HTTP/1.1 connection: keep-alive
         \n Automatically performs up to 100 redirects"""
-        content = ""
         if self.scheme == "file":
             try:
                 with open(self.path, 'r') as file:
@@ -127,11 +126,12 @@ class URL:
             
         # decompress and decode 
         if response_headers.get("content-encoding") == "gzip":
-            return  gzip.decompress(content).decode("utf-8")
+            content = gzip.decompress(content)
+            
         return content.decode("utf-8")
                 
     def _redirect(self, location: str) -> str:
-        if self.redirects >= 20:
+        if self.redirects >= 100:
             return "Error: Redirect Limit Reached"
 
         if location.startswith("/"):
