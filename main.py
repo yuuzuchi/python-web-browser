@@ -1,5 +1,6 @@
 import socket
 import ssl
+import gzip
 
 class URL:
     def __init__(self, url: str):
@@ -103,18 +104,32 @@ class URL:
                     break
                 header, value = line.split(":", 1)
                 response_headers[header.casefold()] = value.strip()
-                
-            # break on unusual headers
-            assert "transfer-encoding" not in response_headers
-            assert "content-encoding" not in response_headers
-            assert "content-length" in response_headers
             
+            # handle redirects
             if status.startswith('3') and "location" in response_headers:
                 content = self._redirect(response_headers["location"])
-                
             else:
-                self.redirects = 0
-                content = response.read(int(response_headers["content-length"])).decode("utf-8")
+                # unchunk the data
+                content = bytearray()
+                if response_headers.get("transfer-encoding") == "chunked":
+                    while True:
+                        chunk_size = int(response.readline().decode("utf-8").strip(), 16)
+                        if chunk_size == 0:
+                            break
+                        chunk = response.read(chunk_size)
+                        content.extend(chunk)
+                        response.read(2)
+                
+                elif "content-length" in response_headers:
+                    content = response.read(int(response_headers["content-length"]))
+                    
+                # decompress and decode 
+                if response_headers.get("content-encoding") == "gzip":
+                    content = gzip.decompress(content).decode("utf-8")
+                else:
+                    content = content.decode("utf-8")
+                
+            self.redirects = 0
         
         if self.source:
             return content.replace("<", "&lt;").replace(">", "&gt;")
@@ -151,7 +166,8 @@ def show(body: str) -> None: # print all text between tags
             
 def load(url: str) -> None:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept-Encoding": "gzip"
     }
     show(url.request(headers))
     
