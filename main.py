@@ -9,7 +9,7 @@ class URL:
     
     def _init_state(self, url: str) -> None:
         """Extracts parts of URL
-        - **scheme** - data: OR \<view-source\>:[http, https, file]
+        - **scheme** - data: OR (view-source):[http, https, file]
         - data accepts **chartype** [US-ASCII, UTF-8] and **MIME-TYPE** [text/plain, text/html]"""
         if url.startswith("data:"):
             self.scheme = "data"
