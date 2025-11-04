@@ -1,9 +1,18 @@
 import tkinter
 from url import URL
+from dataclasses import dataclass
 
 WIDTH, HEIGHT = 1280, 720
-HSTEP, VSTEP = 13, 18
+HSTEP, VSTEP = 10, 13
 SCROLL_STEP = 60
+
+@dataclass
+class scrollstate:
+    is_dragging: bool = False
+    drag_offset: int = 0
+    pos: int = 0
+    bar_y: int = 0
+    bar_height: int = 0
 
 class Browser:
     def __init__(self):
@@ -24,8 +33,11 @@ class Browser:
         self.window.bind("<Button-4>", self.scrollup)
         self.window.bind("<Button-5>", self.scrolldown)
         self.window.bind("<MouseWheel>", self.scrolldelta)
+        self.window.bind("<Button-1>", self.on_mouse_down)
+        self.window.bind("<B1-Motion>", self.on_mouse_drag)
+        self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
-        self.scroll = 0
+        self.scroll = scrollstate()
         self.text = ""
         self.text_height = 0
         
@@ -40,11 +52,19 @@ class Browser:
     
     def draw(self):
         self.canvas.delete("all")
-        self.canvas.create_rectangle(0, 0, self.width, self.height)
+        self.draw_scrollbar()
         for x, y, c in self.display_list:
-            if y > self.scroll + self.height: continue
-            if y + VSTEP < self.scroll: continue
-            self.canvas.create_text(x, y - self.scroll, text=c)
+            if y > self.scroll.pos + self.height: continue
+            if y + VSTEP < self.scroll.pos: continue
+            self.canvas.create_text(x, y - self.scroll.pos, text=c)
+            
+    def draw_scrollbar(self):
+        if self.height >= self.text_height:
+            return
+        self.canvas.create_rectangle(self.width-10, 0, self.width, self.height, width=0, fill="#cccccc")
+        self.scroll.bar_height = self.height**2 / self.text_height
+        self.scroll.bar_y = self.scroll.pos*self.height / self.text_height
+        self.canvas.create_rectangle(self.width-10, self.scroll.bar_y, self.width, self.scroll.bar_y+self.scroll.bar_height, width=0, fill="#aaaaaa")
     
     def load(self, url: URL):
         body = url.request()
@@ -55,18 +75,37 @@ class Browser:
         
     def scrolldown(self, e):
         """Down arrow / Linux mouse wheel down"""
-        self.scroll = self.scroll + SCROLL_STEP if self.scroll < self.text_height-self.height+VSTEP else self.text_height-self.height+VSTEP
+        self.scroll.pos = max(0, self.scroll.pos + SCROLL_STEP if self.scroll.pos < self.text_height-self.height+VSTEP else self.text_height-self.height+VSTEP)
         self.draw()
     
     def scrollup(self, e):
         """Up arrow / Linux mouse wheel up"""
-        self.scroll = self.scroll - SCROLL_STEP if self.scroll > 0 else 0
+        self.scroll.pos = self.scroll.pos - SCROLL_STEP if self.scroll.pos > 0 else 0
         self.draw()
         
     def scrolldelta(self, e):
         """Windows / macOS scroll"""
-        self.scroll = self.scroll + e.delta if self.scroll > 0 else 0
+        self.scroll.pos = self.scroll.pos + e.delta if self.scroll.pos > 0 else 0
         self.draw()
+
+    def on_mouse_down(self, e):
+        # handle scrollbar drag
+        if e.y >= self.scroll.bar_y and e.y <= self.scroll.bar_y + self.scroll.bar_height and \
+                e.x >= self.width-10 and e.x < self.width:
+            self.scroll.is_dragging = True
+            self.scroll.drag_offset = e.y - self.scroll.bar_y
+    
+    def on_mouse_drag(self, e):
+        # scrollbar drag
+        if self.scroll.is_dragging:
+            bar_y = e.y - self.scroll.drag_offset
+            self.scroll.pos = self.text_height * bar_y / self.height
+            self.scroll.pos = max(self.scroll.pos, 0)
+            self.scroll.pos = min(self.scroll.pos, self.text_height-self.height+VSTEP)
+            self.draw()
+    
+    def on_mouse_up(self, e):
+        self.scroll.is_dragging = False
         
 def layout(text, width):
     display_list = []
