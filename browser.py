@@ -63,6 +63,7 @@ class Browser:
         self.canvas.config(width=self.width, height=self.height)
         self.display_list = self.layout.calculate(self.tokens, self.width)
         self.text_height = self.display_list[-1][1] + 20 if self.display_list else 0 # height of last object to draw
+        self.constrain_scroll()
         self.draw()
     
     def draw(self):
@@ -90,20 +91,25 @@ class Browser:
         
     def scrolldown(self, e):
         """Down arrow / Linux mouse wheel down"""
-        self.scroll.pos = max(0, self.scroll.pos + SCROLL_STEP \
-                              if self.scroll.pos < self.text_height-self.height+MARGINS[3] \
-                              else self.text_height-self.height+MARGINS[3])
+        self.scroll.pos += SCROLL_STEP
+        self.constrain_scroll()
         self.draw()
     
     def scrollup(self, e):
         """Up arrow / Linux mouse wheel up"""
-        self.scroll.pos = self.scroll.pos - SCROLL_STEP if self.scroll.pos > 0 else 0
+        self.scroll.pos -= SCROLL_STEP
+        self.constrain_scroll()
         self.draw()
         
     def scrolldelta(self, e):
         """Windows / macOS scroll"""
-        self.scroll.pos = self.scroll.pos + e.delta if self.scroll.pos > 0 else 0
+        self.scroll.pos = self.scroll.pos + e.delta
+        self.constrain_sroll()
         self.draw()
+        
+    def constrain_scroll(self):
+        self.scroll.pos = min(self.scroll.pos, self.text_height-self.height+MARGINS[3])
+        self.scroll.pos = max(0, self.scroll.pos)
 
     def on_mouse_down(self, e):
         # handle scrollbar drag
