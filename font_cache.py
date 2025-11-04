@@ -4,7 +4,7 @@ _font_cache = {}
         
 def get_font(size=16, style="roman", weight="normal"):
     key_int = (
-        (min(size*2, 255) & 0xFF) |
+        (min(int(size*2), 255) & 0xFF) |
         (weight=="bold") << 8 |
         (style=="italic") << 9
     )

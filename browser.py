@@ -135,6 +135,8 @@ class Layout:
         self.SPACE_WIDTH = get_font(size=self.size, style=self.style, weight=self.weight).measure(" ")
         self.LINESPACE = get_font(size=self.size, style=self.style, weight=self.weight).metrics("linespace")*1.25
         self.current_font = get_font()
+        self.align = "left" # center or left
+        self.supersub = "normal" # superscript, subscript, or normal
     
     def _init_state(self):
         self.display_list = []
@@ -151,10 +153,14 @@ class Layout:
         
     def token(self, tok):
         if isinstance(tok, Text):
+            # halve font size if super/subscript
+            size = self.size/2 if self.supersub.startswith("s") else self.size
+
             # within a tag, the font will stay the same
-            self.current_font = get_font(size=self.size, style=self.style, weight=self.weight)
+            self.current_font = get_font(size=size, style=self.style, weight=self.weight)
             for word in tok.text.split():
                 self.word(word)
+                
         elif tok.tag in ("i", "em"):
             self.style = "italic"
         elif tok.tag in ("/i", "/em"):
@@ -176,32 +182,69 @@ class Layout:
         elif tok.tag == "/p":
             self.flush()
             self.cy += self.LINESPACE
+        elif tok.tag == 'h1 class="title"':
+            self.align = "center"
+        elif tok.tag == "/h1":
+            self.flush()
+            self.cy += self.LINESPACE
+            self.align = "left"
+        elif tok.tag == "sup":
+            self.supersub = "superscript"
+        elif tok.tag == "sub":
+            self.supersub = "subscript"
+        elif tok.tag in ("/sup", "/sub"):
+            self.supersub = "normal"
 
     def word(self, word):
         # get width of word for given style and weight
         font_id = self.current_font.id
-        if word in self.width_cache[font_id]:
-            w = self.width_cache[font_id][word]
+        
+        word_nohyphen = word.replace("\u00AD", "")
+        
+        if word_nohyphen in self.width_cache[font_id]:
+            w = self.width_cache[font_id][word_nohyphen]
         else:
-            w = self.current_font.measure(word)
-            self.width_cache[font_id][word] = w
+            w = self.current_font.measure(word_nohyphen)
+            self.width_cache[font_id][word_nohyphen] = w
             
         if self.cx + w > self.width - MARGINS[2]:
-            self.flush()
+            if '\u00AD' not in word:
+                self.flush()
+            else:
+                # can be hyphenated, break word as late as possible then recurse on the remaining portion
+                parts = word.split('\u00AD')
+                idx = self._findsplit(parts) 
+                righthalf = '\u00AD'.join(parts[idx+1:])
+                
+                if idx != -1: 
+                    lefthalf = ''.join(parts[:idx+1]) + '-'
+                    self.line.append((self.cx, lefthalf, self.current_font, self.supersub))
+                    
+                self.flush()
+                self.word(righthalf)
+                return
         
-        self.line.append((self.cx, word, self.current_font))
+        self.line.append((self.cx, word_nohyphen, self.current_font, self.supersub))
         self.cx += w + self.SPACE_WIDTH
         
     def flush(self):
         if not self.line: return
-        metrics = [font.cached_metrics for _, _, font in self.line]
+        line_length = self.cx - self.SPACE_WIDTH - MARGINS[0]
+        metrics = [font.cached_metrics for _, _, font, _ in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         max_descent = max(metric["descent"] for metric in metrics)
         baseline = self.cy + 1.25*max_ascent
         
         # position words so they sit right above the baseline (by their ascent height)
-        for x, word, font in self.line:
-            y = baseline - font.cached_metrics["ascent"]
+        for x, word, font, supersub in self.line:
+            y = self.cy
+            if self.align == "center":
+                x += (self.width/2)-(line_length/2)
+            if supersub == "superscript":
+                # raise superscript text by moving it up by half the font's ascent
+                y = baseline - (1.5 * font.cached_metrics["ascent"])
+            else:
+                y = baseline - font.cached_metrics["ascent"]
             self.display_list.append((x, y, word, font))
 
         # move cursor below deepest descent
@@ -211,6 +254,22 @@ class Layout:
         self.cx = MARGINS[0]
         self.line = []
 
+    def _findsplit(self, parts):
+        # binary search for latest possible place to hyphenate word
+        l, r = 0, len(parts)-1
+        ans = -1
+        while l <= r:
+            mid = (l + r) // 2
+            leftword = ''.join(parts[:mid+1]) + "-"
+            w = self.current_font.measure(leftword)
+
+            if self.cx + w <= self.width - MARGINS[2]:
+                ans = mid
+                l = mid + 1
+            else:
+                r = mid - 1
+        return ans
+            
 def lex(body):
     res = []
     buffer = []
@@ -221,10 +280,14 @@ def lex(body):
         if c == "&" and not in_tag:
             if body[i+1:i+4] == "lt;":
                 c = "<"
+                i += 3
             elif body[i+1:i+4] == "gt;":
                 c = ">"
+                i += 3
+            elif body[i+1:i+5] == "shy;":
+                c = "\u00AD"
+                i += 4
             buffer.append(c)
-            i += 3
         elif c == "<":
             in_tag = True
             if buffer:
