@@ -15,7 +15,9 @@ class scrollstate:
     bar_height: int = 0
 
 class Browser:
-    def __init__(self):
+    def __init__(self, options: dict={}):
+        """Options:
+        - rtl: bool, Right to Left text direction rendering"""
         self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
         self.window.configure(bg="white")
@@ -40,12 +42,13 @@ class Browser:
         self.scroll = scrollstate()
         self.text = ""
         self.text_height = 0
+        self.rtl = options.get("rtl", False)
         
     def resize_canvas(self, e):
         self.width = e.width
         self.height = e.height
         self.canvas.config(width=self.width, height=self.height)
-        self.display_list = layout(self.text, self.width)
+        self.display_list = self.layout(self.text, self.width)
         self.text_height = self.display_list[-1][1] if self.display_list else 0 # height of last object to draw
         self.draw()
     
@@ -68,7 +71,7 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self.text = lex(body)
-        self.display_list = layout(self.text, self.width)
+        self.display_list = self.layout(self.text, self.width)
         self.text_height = self.display_list[-1][1] if self.display_list else 0# height of last object to draw
         self.draw()
         
@@ -106,21 +109,35 @@ class Browser:
     def on_mouse_up(self, e):
         self.scroll.is_dragging = False
         
-def layout(text, width):
-    display_list = []
-    cx, cy = HSTEP, VSTEP
-    for c in text:
-        if c == "\n":
-            cx = HSTEP
-            cy += VSTEP*1.5
-            continue
-        
-        display_list.append((cx, cy, c))
-        cx += HSTEP
-        if cx >= width-HSTEP:
-            cy += VSTEP
-            cx = HSTEP
-    return display_list
+    def layout(self, text, width):
+        display_list = []
+        cx, cy = HSTEP, VSTEP
+        line = []
+        line_length = 0
+        for c in text:
+            if c == "\n":
+                cx = HSTEP
+                cy += VSTEP*1.5
+                if self.rtl:
+                    # offset each character in the line by width - line_length
+                    line = [(x+self.width-line_length-HSTEP, y, ch) for x, y, ch in line]
+                    display_list.extend(line)
+                    line_length = 0
+                    line = []
+                continue
+            
+            line_length += HSTEP
+            if self.rtl:
+                line.append((cx, cy, c))
+            else:
+                display_list.append((cx, cy, c))
+
+            cx += HSTEP
+            if cx >= width-HSTEP:
+                cy += VSTEP
+                cx = HSTEP
+
+        return display_list
 
 def lex(body):
     text = []
@@ -144,6 +161,17 @@ def lex(body):
 
 if __name__ == "__main__":
     import sys
-    url = sys.argv[1] if len(sys.argv) > 1 else "file:///home/yuzu/Documents/browser-dev/hi"
-    Browser().load(URL(url))
+
+    command = None
+    options = {}
+    url = ""
+    for arg in sys.argv:
+        if arg in ("-h", "help"):
+            print("Usage: python3 browser.py [-rtl, -h] <url>")
+        elif arg == "-rtl":
+            options["rtl"] = True
+        else:
+            url = arg
+    url = url or "file:///home/yuzu/Documents/browser-dev/hi"
+    Browser(options).load(URL(url))
     tkinter.mainloop()
