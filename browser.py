@@ -54,13 +54,14 @@ class Browser:
         self.text_height = 0
         self.rtl = options.get("rtl", False)
         
+        self.layout = Layout()
         self.display_list = []
         
     def resize_canvas(self, e):
         self.width = e.width
         self.height = e.height
         self.canvas.config(width=self.width, height=self.height)
-        self.display_list = Layout(self.tokens, self.width).display_list
+        self.display_list = self.layout.calculate(self.tokens, self.width)
         self.text_height = self.display_list[-1][1] + 20 if self.display_list else 0 # height of last object to draw
         self.draw()
     
@@ -83,7 +84,7 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self.tokens = lex(body)
-        self.display_list = Layout(self.tokens, self.width).display_list
+        self.display_list = self.layout.calculate(self.tokens, self.width)
         self.text_height = self.display_list[-1][1] * 20 if self.display_list else 0# height of last object to draw
         self.draw()
         
@@ -124,21 +125,29 @@ class Browser:
         self.scroll.is_dragging = False
 
 class Layout:
-    def __init__(self, tokens, width):
-        self.display_list = []
-        self.line = []
-        self.cx, self.cy = MARGINS[0], MARGINS[1]
+    def __init__(self):
+        self.width_cache = collections.defaultdict(dict) # font: {word: width}
+        self._init_state()
         self.style = "roman"
         self.weight = "normal"
         self.size = 12
-        self.width_cache = collections.defaultdict(dict) # (word, style, weight)
-        self.width = width
-        self.current_font = get_font()
+        self.width = 0
         self.SPACE_WIDTH = get_font(size=self.size, style=self.style, weight=self.weight).measure(" ")
         self.LINESPACE = get_font(size=self.size, style=self.style, weight=self.weight).metrics("linespace")*1.25
+        self.current_font = get_font()
+    
+    def _init_state(self):
+        self.display_list = []
+        self.line = []
+        self.cx, self.cy = MARGINS[0], MARGINS[1]
+    
+    def calculate(self, tokens, width):
+        self._init_state()
+        self.width = width
         for tok in tokens:
             self.token(tok)
         self.flush()
+        return self.display_list
         
     def token(self, tok):
         if isinstance(tok, Text):
