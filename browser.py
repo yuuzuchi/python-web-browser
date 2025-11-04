@@ -143,6 +143,7 @@ class Layout:
         self.current_font = get_font()
         self.align = "left" # center or left
         self.supersub = "normal" # superscript, subscript, or normal
+        self.pre = False
     
     def _init_state(self):
         self.display_list = []
@@ -162,10 +163,24 @@ class Layout:
             # halve font size if super/subscript
             size = self.size/2 if self.supersub.startswith("s") else self.size
 
-            # within a tag, the font will stay the same
-            self.current_font = get_font(size=size, style=self.style, weight=self.weight)
-            for word in tok.text.split():
-                self.word(word)
+            if not self.pre:
+                # within a tag, the font will stay the same
+                self.current_font = get_font(size=size, style=self.style, weight=self.weight)
+                for word in tok.text.split():
+                    self.word(word)
+            else:
+                self.current_font = get_font(family="Courier New", size=size, style=self.style, weight=self.weight)
+                if "\n" in tok.text:
+                    first = True
+                    for line in tok.text.split("\n"):
+                        print(line, "newline")
+                        if not first:
+                            self.flush()
+                        first = False
+                        self.word(line)
+                else:
+                    self.word(tok.text)
+                    print(tok.text)
                 
         elif tok.tag in ("i", "em"):
             self.style = "italic"
@@ -200,6 +215,12 @@ class Layout:
             self.supersub = "subscript"
         elif tok.tag in ("/sup", "/sub"):
             self.supersub = "normal"
+        elif tok.tag == "pre":
+            self.pre = True
+            self.flush()
+        elif tok.tag == "/pre":
+            self.pre = False
+            self.flush()
 
     def word(self, word):
         # get width of word for given style and weight
@@ -248,7 +269,7 @@ class Layout:
                 x += (self.width/2)-(line_length/2)
             if supersub == "superscript":
                 # raise superscript text by moving it up by half the font's ascent
-                y = baseline - (1.5 * font.cached_metrics["ascent"])
+                y = baseline - (2 * font.cached_metrics["ascent"])
             else:
                 y = baseline - font.cached_metrics["ascent"]
             self.display_list.append((x, y, word, font))

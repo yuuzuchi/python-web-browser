@@ -14,6 +14,11 @@ Test of subscript<sub>nice</sub>
 
 yayyyy we are wrapping around the page meow&shy;meow&shy;meow&shy;meow
 
+the pre block should cause a newline -&gt; <pre>and respect
+    all the whitespace inside of it
+even if it really ugly
+    <b>and <i>also </i></b><i>these things</i></pre>^ and there should be a newline here
+
 <tag>wow &lt;div&gt; poggers</tag>
 
 a bunch of text 
