@@ -1,9 +1,12 @@
+import collections
 import tkinter
+import tkinter.font
+from font_cache import get_font
 from url import URL
 from dataclasses import dataclass
 
 WIDTH, HEIGHT = 1280, 720
-HSTEP, VSTEP = 10, 13
+MARGINS = [10, 10, 20, 10] # left, top, right, bottom
 SCROLL_STEP = 60
 
 @dataclass
@@ -13,6 +16,14 @@ class scrollstate:
     pos: int = 0
     bar_y: int = 0
     bar_height: int = 0
+
+class Text:
+    def __init__(self, text):
+        self.text = text
+
+class Tag:
+    def __init__(self, tag):
+        self.tag = tag
 
 class Browser:
     def __init__(self, options: dict={}):
@@ -29,7 +40,6 @@ class Browser:
         )
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", self.resize_canvas)
-
         self.window.bind("<Down>", self.scrolldown)
         self.window.bind("<Up>", self.scrollup)
         self.window.bind("<Button-4>", self.scrollup)
@@ -40,25 +50,27 @@ class Browser:
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
         self.scroll = scrollstate()
-        self.text = ""
+        self.tokens = []
         self.text_height = 0
         self.rtl = options.get("rtl", False)
+        
+        self.display_list = []
         
     def resize_canvas(self, e):
         self.width = e.width
         self.height = e.height
         self.canvas.config(width=self.width, height=self.height)
-        self.display_list = self.layout(self.text, self.width)
-        self.text_height = self.display_list[-1][1] if self.display_list else 0 # height of last object to draw
+        self.display_list = Layout(self.tokens, self.width).display_list
+        self.text_height = self.display_list[-1][1] + 20 if self.display_list else 0 # height of last object to draw
         self.draw()
     
     def draw(self):
         self.canvas.delete("all")
         self.draw_scrollbar()
-        for x, y, c in self.display_list:
+        for x, y, t, font in self.display_list:
             if y > self.scroll.pos + self.height: continue
-            if y + VSTEP < self.scroll.pos: continue
-            self.canvas.create_text(x, y - self.scroll.pos, text=c)
+            if y + MARGINS[3] < self.scroll.pos: continue
+            self.canvas.create_text(x, y - self.scroll.pos, text=t, anchor='nw', font=font)
             
     def draw_scrollbar(self):
         if self.height >= self.text_height:
@@ -70,14 +82,16 @@ class Browser:
     
     def load(self, url: URL):
         body = url.request()
-        self.text = lex(body)
-        self.display_list = self.layout(self.text, self.width)
-        self.text_height = self.display_list[-1][1] if self.display_list else 0# height of last object to draw
+        self.tokens = lex(body)
+        self.display_list = Layout(self.tokens, self.width).display_list
+        self.text_height = self.display_list[-1][1] * 20 if self.display_list else 0# height of last object to draw
         self.draw()
         
     def scrolldown(self, e):
         """Down arrow / Linux mouse wheel down"""
-        self.scroll.pos = max(0, self.scroll.pos + SCROLL_STEP if self.scroll.pos < self.text_height-self.height+VSTEP else self.text_height-self.height+VSTEP)
+        self.scroll.pos = max(0, self.scroll.pos + SCROLL_STEP \
+                              if self.scroll.pos < self.text_height-self.height+MARGINS[3] \
+                              else self.text_height-self.height+MARGINS[3])
         self.draw()
     
     def scrollup(self, e):
@@ -103,61 +117,121 @@ class Browser:
             bar_y = e.y - self.scroll.drag_offset
             self.scroll.pos = self.text_height * bar_y / self.height
             self.scroll.pos = max(self.scroll.pos, 0)
-            self.scroll.pos = min(self.scroll.pos, self.text_height-self.height+VSTEP)
+            self.scroll.pos = min(self.scroll.pos, self.text_height-self.height+MARGINS[3])
             self.draw()
     
     def on_mouse_up(self, e):
         self.scroll.is_dragging = False
+
+class Layout:
+    def __init__(self, tokens, width):
+        self.display_list = []
+        self.line = []
+        self.cx, self.cy = MARGINS[0], MARGINS[1]
+        self.style = "roman"
+        self.weight = "normal"
+        self.size = 12
+        self.width_cache = collections.defaultdict(dict) # (word, style, weight)
+        self.width = width
+        self.current_font = get_font()
+        self.SPACE_WIDTH = get_font(size=self.size, style=self.style, weight=self.weight).measure(" ")
+        self.LINESPACE = get_font(size=self.size, style=self.style, weight=self.weight).metrics("linespace")*1.25
+        for tok in tokens:
+            self.token(tok)
+        self.flush()
         
-    def layout(self, text, width):
-        display_list = []
-        cx, cy = HSTEP, VSTEP
-        line = []
-        line_length = 0
-        for c in text:
-            if c == "\n":
-                cx = HSTEP
-                cy += VSTEP*1.5
-                if self.rtl:
-                    # offset each character in the line by width - line_length
-                    line = [(x+self.width-line_length-HSTEP, y, ch) for x, y, ch in line]
-                    display_list.extend(line)
-                    line_length = 0
-                    line = []
-                continue
+    def token(self, tok):
+        if isinstance(tok, Text):
+            # within a tag, the font will stay the same
+            self.current_font = get_font(size=self.size, style=self.style, weight=self.weight)
+            for word in tok.text.split():
+                self.word(word)
+        elif tok.tag in ("i", "em"):
+            self.style = "italic"
+        elif tok.tag in ("/i", "/em"):
+            self.style = "roman"
+        elif tok.tag in ("b", "strong"):
+            self.weight = "bold"
+        elif tok.tag in ("/b", "/strong"):
+            self.weight = "normal"
+        elif tok.tag == "small":
+            self.size -= 2
+        elif tok.tag == "/small":
+            self.size += 2
+        elif tok.tag == "big":
+            self.size += 4
+        elif tok.tag == "/big":
+            self.size -= 4
+        elif tok.tag == "br":
+            self.flush()
+        elif tok.tag == "/p":
+            self.flush()
+            self.cy += self.LINESPACE
+
+    def word(self, word):
+        # get width of word for given style and weight
+        font_id = self.current_font.id
+        if word in self.width_cache[font_id]:
+            w = self.width_cache[font_id][word]
+        else:
+            w = self.current_font.measure(word)
+            self.width_cache[font_id][word] = w
             
-            line_length += HSTEP
-            if self.rtl:
-                line.append((cx, cy, c))
-            else:
-                display_list.append((cx, cy, c))
+        if self.cx + w > self.width - MARGINS[2]:
+            self.flush()
+        
+        self.line.append((self.cx, word, self.current_font))
+        self.cx += w + self.SPACE_WIDTH
+        
+    def flush(self):
+        if not self.line: return
+        metrics = [font.cached_metrics for _, _, font in self.line]
+        max_ascent = max(metric["ascent"] for metric in metrics)
+        max_descent = max(metric["descent"] for metric in metrics)
+        baseline = self.cy + 1.25*max_ascent
+        
+        # position words so they sit right above the baseline (by their ascent height)
+        for x, word, font in self.line:
+            y = baseline - font.cached_metrics["ascent"]
+            self.display_list.append((x, y, word, font))
 
-            cx += HSTEP
-            if cx >= width-HSTEP:
-                cy += VSTEP
-                cx = HSTEP
+        # move cursor below deepest descent
+        self.cy = baseline + 1.25*max_descent
 
-        return display_list
+        # reset to left
+        self.cx = MARGINS[0]
+        self.line = []
 
 def lex(body):
-    text = []
+    res = []
+    buffer = []
     in_tag = False
     i = 0
     while i < len(body):
         c = body[i]
-        if c == "<": in_tag = True
-        elif c == ">": in_tag = False
-        elif not in_tag:
-            if c == "&":
-                if body[i+1:i+4] == "lt;":
-                    c = "<"
-                elif body[i+1:i+4] == "gt;":
-                    c = ">"
-                i += 3
-            text.append(c)
+        if c == "&" and not in_tag:
+            if body[i+1:i+4] == "lt;":
+                c = "<"
+            elif body[i+1:i+4] == "gt;":
+                c = ">"
+            buffer.append(c)
+            i += 3
+        elif c == "<":
+            in_tag = True
+            if buffer:
+                res.append(Text(''.join(buffer)))
+            buffer = []
+        elif c == ">":
+            in_tag = False
+            res.append(Tag(''.join(buffer)))
+            buffer = []
+        else:
+            buffer.append(c)
         i += 1
+    if not in_tag and buffer:
+        res.append(Text(''.join(buffer)))
     
-    return ''.join(text)
+    return res
 
 if __name__ == "__main__":
     import sys
@@ -165,7 +239,7 @@ if __name__ == "__main__":
     command = None
     options = {}
     url = ""
-    for arg in sys.argv:
+    for arg in sys.argv[1:]:
         if arg in ("-h", "help"):
             print("Usage: python3 browser.py [-rtl, -h] <url>")
         elif arg == "-rtl":
@@ -173,5 +247,6 @@ if __name__ == "__main__":
         else:
             url = arg
     url = url or "file:///home/yuzu/Documents/browser-dev/hi"
+    print(url)
     Browser(options).load(URL(url))
     tkinter.mainloop()
