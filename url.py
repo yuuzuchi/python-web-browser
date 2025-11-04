@@ -12,47 +12,60 @@ class URL:
         """Extracts parts of URL
         - **scheme** - data: OR (view-source):[http, https, file]
         - data accepts **chartype** [US-ASCII, UTF-8] and **MIME-TYPE** [text/plain, text/html]"""
-        if url.startswith("data:"):
-            self.scheme = "data"
-            meta, self.data = url[5:].split(",", 1)
-            self.charset='US-ASCII'
-            self.base64 = False
-            
-            parts = meta.split(";")
-            self.mime = parts[0] or "text/plain"
-            
-            for part in parts[1:]:
-                if part.startswith("charset="):
-                    self.charset = part.split("=", 1)[1]
-                elif part == "base64":
-                    self.base64 = True
+        if url == "about:blank":
+            self.scheme = "blank"
+            return 
+        
+        try:
+            if url.startswith("data:"):
+                self.scheme = "data"
+                meta, self.data = url[5:].split(",", 1)
+                self.charset='US-ASCII'
+                self.base64 = False
+                
+                parts = meta.split(";")
+                self.mime = parts[0] or "text/plain"
+                
+                for part in parts[1:]:
+                    if part.startswith("charset="):
+                        self.charset = part.split("=", 1)[1]
+                    elif part == "base64":
+                        self.base64 = True
 
-            assert self.mime in ("text/plain", "text/html")
-            assert self.charset in ("US-ASCII", "UTF-8")
-            return
+                assert self.mime in ("text/plain", "text/html")
+                assert self.charset in ("US-ASCII", "UTF-8")
+                return
+        except Exception:
+            self._init_state("about:blank")
             
         self.source = False
         
-        self.scheme, url = url.split("://", 1)
-        if self.scheme.startswith("view-source:"):
-            self.source = True
-            self.scheme = self.scheme.split(":", 1)[1]
-        assert self.scheme in ["http", "https", "file"]
-        
-        if "/" not in url:
-            url += "/"
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
-        self.port = 80 if self.scheme == "http" else 443
-        
-        # custom ports
-        if ":" in self.host:
-            self.host, self.port = self.host.split(":",1)
-            self.port = int(self.port)
+        try:
+            self.scheme, url = url.split("://", 1)
+            if self.scheme.startswith("view-source:"):
+                self.source = True
+                self.scheme = self.scheme.split(":", 1)[1]
+            assert self.scheme in ["http", "https", "file"]
+            
+            if "/" not in url:
+                url += "/"
+            self.host, url = url.split("/", 1)
+            self.path = "/" + url
+            self.port = 80 if self.scheme == "http" else 443
+            
+            # custom ports
+            if ":" in self.host:
+                self.host, self.port = self.host.split(":",1)
+                self.port = int(self.port)
+        except Exception:
+            self._init_state("about:blank")
 
     def request(self, headers: dict={}) -> str:
         """Performs a **GET** request using HTTP/1.1 connection: keep-alive
         \n Automatically performs up to 100 redirects"""
+        if self.scheme == "blank":
+            return ""
+        
         if self.scheme == "file":
             try:
                 with open(self.path, 'r') as file:

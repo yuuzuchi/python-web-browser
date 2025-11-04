@@ -44,10 +44,9 @@ class Browser:
     def resize_canvas(self, e):
         self.width = e.width
         self.height = e.height
-        #print(WIDTH, HEIGHT)
         self.canvas.config(width=self.width, height=self.height)
         self.display_list = layout(self.text, self.width)
-        self.text_height = self.display_list[-1][1] # height of last object to draw
+        self.text_height = self.display_list[-1][1] if self.display_list else 0 # height of last object to draw
         self.draw()
     
     def draw(self):
@@ -70,7 +69,7 @@ class Browser:
         body = url.request()
         self.text = lex(body)
         self.display_list = layout(self.text, self.width)
-        self.text_height = self.display_list[-1][1] # height of last object to draw
+        self.text_height = self.display_list[-1][1] if self.display_list else 0# height of last object to draw
         self.draw()
         
     def scrolldown(self, e):
