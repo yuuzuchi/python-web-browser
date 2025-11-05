@@ -35,19 +35,12 @@ class HTMLParser:
     def parse(self):
         text = []
         in_tag = False
-        in_comment = False
+        in_script = False
         i = 0
         while i < len(self.body):
-            print(self.body[i],end="")
-            if in_comment:
-                if self.body[i:i+3] == "-->":
-                    i += 3
-                    in_comment = False
-                i += 1
-                continue
-            
             c = self.body[i]
             if c == "&" and not in_tag:
+                # handle entities
                 if self.body[i+1:i+4] == "lt;":
                     c = "<"
                     i += 3
@@ -61,17 +54,33 @@ class HTMLParser:
 
             elif c == "<":
                 if self.body[i+1:i+4] == "!--":
-                    in_comment = True
+                    # if comment, jump to end of comment
                     i += 3
+                    while self.body[i:i+3] != "-->":
+                        i += 1
+                    i += 3
+                    continue
                 else:
+                    # flush buffer contents
                     in_tag = True
                     if text:
                         self.add_text(''.join(text))
                     text = []
             elif c == ">":
                 in_tag = False
-                self.add_tag(''.join(text))
+                tag = ''.join(text)
+                self.add_tag(tag)
                 text = []
+                
+                if tag == "script":
+                    # jump to matching </script> tag, add text to tag
+                    start = i
+                    while self.body[i:i+9] != "</script>":
+                        i += 1
+                    self.add_text(self.body[start+1:i])
+                    self.add_tag('/script')
+                    i += 9
+                    continue
             else:
                 text.append(c)
             i += 1
@@ -151,14 +160,25 @@ class HTMLParser:
                     self.add_tag("head")
                 else:
                     self.add_tag("body")
+                continue
             
             # html + head, but encounter something that should be in body
-            elif top == "head" and len(self.unfinished) >= 2 and self.unfinished[-2].tag == "html" and \
+            if top == "head" and len(self.unfinished) >= 2 and self.unfinished[-2].tag == "html" and \
                     tag not in HEAD_TAGS and tag != "/head":
                 self.add_tag("/head")
+                continue
 
-            else:
-                break
+            # nested paragraphs: in a <p>, and see another <p>
+            if top == "p" and tag == "p":
+                self.add_tag("/p")
+                continue
+            
+            # nested lists: in a <li>, and see another <li>
+            if top == "li" and tag != "/li":
+                self.add_tag("/li")
+                continue
+
+            break
             
             
 def print_tree(node, indent=0):

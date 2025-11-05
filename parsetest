@@ -1,12 +1,24 @@
 <!doctype html>
 <html>
-    <head>
-        <p1>wow</p1>
 
-        <!-- wwow hello -->
-        <!--> wewird malformed comment
+<head>
+    <p>wow</p>
+
+    <!-- wwow hello -->
+    <!--> wewird malformed comment
         <p1>i shouldn't be visible!</p1>
-        --><p1>dont skip me</p1>
+        -->
+    <p1>before<!--skip me-->after</p1>
+    <b>Bold <i>both</b> italic</i>
 
-        <p1>did someone hear something?</p1>
+    <p>hello
+    <p>world</p>
 
+    <ul>
+        <li>ok
+        <li>ok2
+            <ul>
+                <li>another
+            </ul>
+    </ul>a<script>we ignore all <tags>in here</tags></script><p>and we outta there</p>
+    <script></script>
