@@ -1,7 +1,7 @@
 import collections
 import tkinter
-import tkinter.font
 from font_cache import get_font
+from html_parser import HTMLParser, Text, Element
 from url import URL
 from dataclasses import dataclass
 
@@ -16,14 +16,6 @@ class scrollstate:
     pos: int = 0
     bar_y: int = 0
     bar_height: int = 0
-
-class Text:
-    def __init__(self, text):
-        self.text = text
-
-class Tag:
-    def __init__(self, tag):
-        self.tag = tag
 
 class Browser:
     def __init__(self, options: dict={}):
@@ -50,7 +42,7 @@ class Browser:
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
         self.scroll = scrollstate()
-        self.tokens = []
+        self.nodes = []
         self.text_height = 0
         self.rtl = options.get("rtl", False)
         
@@ -61,10 +53,7 @@ class Browser:
         self.width = e.width
         self.height = e.height
         self.canvas.config(width=self.width, height=self.height)
-        self.display_list = self.layout.calculate(self.tokens, self.width)
-        self.text_height = self.display_list[-1][1] + 20 if self.display_list else 0 # height of last object to draw
-        self.constrain_scroll()
-        self.draw()
+        self._layout()
     
     def draw(self):
         self.canvas.delete("all")
@@ -84,9 +73,13 @@ class Browser:
     
     def load(self, url: URL):
         body = url.request()
-        self.tokens = lex(body)
-        self.display_list = self.layout.calculate(self.tokens, self.width)
-        self.text_height = self.display_list[-1][1] * 20 if self.display_list else 0# height of last object to draw
+        self.nodes = HTMLParser(body).parse()
+        self._layout()
+    
+    def _layout(self):
+        self.display_list = self.layout.calculate(self.nodes, self.width)
+        self.text_height = self.display_list[-1][1] + 20 if self.display_list else 0# height of last object to draw
+        self.constrain_scroll()
         self.draw()
         
     def scrolldown(self, e):
@@ -123,8 +116,7 @@ class Browser:
         if self.scroll.is_dragging:
             bar_y = e.y - self.scroll.drag_offset
             self.scroll.pos = self.text_height * bar_y / self.height
-            self.scroll.pos = max(self.scroll.pos, 0)
-            self.scroll.pos = min(self.scroll.pos, self.text_height-self.height+MARGINS[3])
+            self.constrain_scroll()
             self.draw()
     
     def on_mouse_up(self, e):
@@ -150,79 +142,85 @@ class Layout:
         self.line = []
         self.cx, self.cy = MARGINS[0], MARGINS[1]
     
-    def calculate(self, tokens, width):
+    def calculate(self, tree, width):
         self._init_state()
         self.width = width
-        for tok in tokens:
-            self.token(tok)
+        self.recurse(tree)
         self.flush()
         return self.display_list
-        
-    def token(self, tok):
-        if isinstance(tok, Text):
-            # halve font size if super/subscript
-            size = self.size/2 if self.supersub.startswith("s") else self.size
-
-            if not self.pre:
-                # within a tag, the font will stay the same
-                self.current_font = get_font(size=size, style=self.style, weight=self.weight)
-                for word in tok.text.split():
-                    self.word(word)
-            else:
-                self.current_font = get_font(family="Courier New", size=size, style=self.style, weight=self.weight)
-                if "\n" in tok.text:
-                    first = True
-                    for line in tok.text.split("\n"):
-                        print(line, "newline")
-                        if not first:
-                            self.flush()
-                        first = False
-                        self.word(line)
-                else:
-                    self.word(tok.text)
-                    print(tok.text)
-                
-        elif tok.tag in ("i", "em"):
+    
+    def open_tag(self, tag):
+        if tag in ("i", "em"):
             self.style = "italic"
-        elif tok.tag in ("/i", "/em"):
-            self.style = "roman"
-        elif tok.tag in ("b", "strong"):
+        elif tag in ("b", "strong"):
             self.weight = "bold"
-        elif tok.tag in ("/b", "/strong"):
-            self.weight = "normal"
-        elif tok.tag == "small":
+        elif tag == "small":
             self.size -= 2
-        elif tok.tag == "/small":
-            self.size += 2
-        elif tok.tag == "big":
+        elif tag == "big":
             self.size += 4
-        elif tok.tag == "/big":
-            self.size -= 4
-        elif tok.tag == "br":
+        elif tag == "br":
             self.flush()
-        elif tok.tag == "/p":
+        elif tag == 'h1 class="title"':
+            self.align = "center"
+        elif tag == "sup":
+            self.supersub = "superscript"
+        elif tag == "sub":
+            self.supersub = "subscript"
+        elif tag == "pre":
+            self.pre = True
+            self.flush()
+        
+    def close_tag(self, tag):
+        if tag in ("i", "em"):
+            self.style = "roman"
+        elif tag in ("b", "strong"):
+            self.weight = "normal"
+        elif tag == "small":
+            self.size += 2
+        elif tag == "big":
+            self.size -= 4
+        elif tag == "p":
             self.flush()
             self.cy += self.LINESPACE
-        elif tok.tag == 'h1 class="title"':
-            self.align = "center"
-        elif tok.tag == "/h1":
+        elif tag == "h1":
             self.flush()
             self.cy += self.LINESPACE
             self.align = "left"
-        elif tok.tag == "sup":
-            self.supersub = "superscript"
-        elif tok.tag == "sub":
-            self.supersub = "subscript"
-        elif tok.tag in ("/sup", "/sub"):
+        elif tag in ("sup", "sub"):
             self.supersub = "normal"
-        elif tok.tag == "pre":
-            self.pre = True
-            self.flush()
-        elif tok.tag == "/pre":
+        elif tag == "pre":
             self.pre = False
             self.flush()
+        
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            # halve font size if super/subscript
+            size = self.size/2 if self.supersub.startswith("s") else self.size
 
-    def word(self, word):
+            if self.pre:
+                # pre block, print line by line and dont wrap
+                # within a tag, the font will stay the same
+                self.current_font = get_font(family="Courier New", size=size, style=self.style, weight=self.weight)
+                if "\n" in tree.text:
+                    first = True
+                    for line in tree.text.split("\n"):
+                        if not first:
+                            self.flush()
+                        first = False
+                        self.word(line, wrap=False)
+                else:
+                    self.word(tree.text, wrap=False)
+            else:
+                self.current_font = get_font(size=size, style=self.style, weight=self.weight)
+                for word in tree.text.split():
+                    self.word(word)
+        else:
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)                
+
+    def word(self, word, wrap=True):
         # get width of word for given style and weight
         font_id = self.current_font.id
         
@@ -234,7 +232,7 @@ class Layout:
             w = self.current_font.measure(word_nohyphen)
             self.width_cache[font_id][word_nohyphen] = w
             
-        if self.cx + w > self.width - MARGINS[2]:
+        if wrap and self.cx + w > self.width - MARGINS[2]:
             if '\u00AD' not in word:
                 self.flush()
             else:
@@ -296,41 +294,6 @@ class Layout:
             else:
                 r = mid - 1
         return ans
-            
-def lex(body):
-    res = []
-    buffer = []
-    in_tag = False
-    i = 0
-    while i < len(body):
-        c = body[i]
-        if c == "&" and not in_tag:
-            if body[i+1:i+4] == "lt;":
-                c = "<"
-                i += 3
-            elif body[i+1:i+4] == "gt;":
-                c = ">"
-                i += 3
-            elif body[i+1:i+5] == "shy;":
-                c = "\u00AD"
-                i += 4
-            buffer.append(c)
-        elif c == "<":
-            in_tag = True
-            if buffer:
-                res.append(Text(''.join(buffer)))
-            buffer = []
-        elif c == ">":
-            in_tag = False
-            res.append(Tag(''.join(buffer)))
-            buffer = []
-        else:
-            buffer.append(c)
-        i += 1
-    if not in_tag and buffer:
-        res.append(Text(''.join(buffer)))
-    
-    return res
 
 if __name__ == "__main__":
     import sys
