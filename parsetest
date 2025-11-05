@@ -22,3 +22,5 @@
             </ul>
     </ul>a<script>we ignore all <tags>in here</tags></script><p>and we outta there</p>
     <script></script>
+    <p class="ball s<>'quotes'" secondattribute='wwowzers"nice"' thirdattribute integer=3>hi</p>
+    <p>i think we broke it</p>

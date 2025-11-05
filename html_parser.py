@@ -25,7 +25,7 @@ class Element:
         self.parent = parent
         
     def __repr__(self):
-        return "<" + self.tag + ">"
+        return f"<{self.tag}{str(self.attributes) if self.attributes else ""}>"
             
 class HTMLParser:
     def __init__(self, body):
@@ -35,55 +35,77 @@ class HTMLParser:
     def parse(self):
         text = []
         in_tag = False
-        in_script = False
+        in_attribute = False # quoted attributes may contain <, >, and space
+        quote = None # either " or ' or None
         i = 0
-        while i < len(self.body):
+        n = len(self.body)
+        
+        while i < n:
             c = self.body[i]
+            
+            # handle entities
             if c == "&" and not in_tag:
-                # handle entities
-                if self.body[i+1:i+4] == "lt;":
-                    c = "<"
-                    i += 3
-                elif self.body[i+1:i+4] == "gt;":
-                    c = ">"
-                    i += 3
-                elif self.body[i+1:i+5] == "shy;":
-                    c = "\u00AD"
+                if self.body.startswith("lt;", i+1):
+                    text.append("<")
                     i += 4
+                    continue
+                elif self.body.startswith("gt;", i+1):
+                    text.append(">")
+                    i += 4
+                    continue
+                elif self.body.startswith("shy;", i+1):
+                    text.append("\u00AD")
+                    i += 5
+                    continue
                 text.append(c)
-
-            elif c == "<":
-                if self.body[i+1:i+4] == "!--":
-                    # if comment, jump to end of comment
-                    i += 3
-                    while self.body[i:i+3] != "-->":
+                    
+            elif c == "<" and not in_tag and not in_attribute:
+                # if comment, jump to end of comment
+                if self.body.startswith("!--", i+1):
+                    i += 4
+                    while i < n and not self.body.startswith("-->", i):
                         i += 1
                     i += 3
                     continue
-                else:
-                    # flush buffer contents
-                    in_tag = True
-                    if text:
-                        self.add_text(''.join(text))
-                    text = []
-            elif c == ">":
+                
+                # flush buffer contents before tag
+                if text:
+                    self.add_text(''.join(text))
+                in_tag = True
+                text = []
+                
+            elif c == ">" and in_tag and not in_attribute:
                 in_tag = False
                 tag = ''.join(text)
                 self.add_tag(tag)
                 text = []
                 
+                # jump to matching </script> tag, add text to tag
                 if tag == "script":
-                    # jump to matching </script> tag, add text to tag
-                    start = i
-                    while self.body[i:i+9] != "</script>":
-                        i += 1
-                    self.add_text(self.body[start+1:i])
+                    end = i+1
+                    while end < n and not self.body.startswith("</script>", end):
+                        end += 1
+                    script_text = self.body[i+1:end]
+                    if script_text:
+                        self.add_text(script_text)
                     self.add_tag('/script')
-                    i += 9
-                    continue
+                    i = end + 8
+                    
+            # track enter or leaving quoted attribute
+            elif in_tag and (c == '"' or c == "'"):
+                if not in_attribute:
+                    quote = c
+                    in_attribute = True
+                elif in_attribute and quote == c:
+                    quote = None
+                    in_attribute = False
+                text.append(c) # preserve the quotes!
+                
             else:
                 text.append(c)
+                
             i += 1
+            
         if not in_tag and text:
             self.add_text(''.join(text))
         
@@ -131,17 +153,54 @@ class HTMLParser:
         return self.unfinished.pop()
 
     def get_attributes(self, text):
-        parts = text.split()
-        tag = parts[0].casefold()
+        parts = text.split(None, 1)
+        if len(parts) == 1:
+            return parts[0], {}
+
+        tag, rest = parts[0].casefold(), parts[1]
         attributes = {}
-        for attrpair in parts[1:]:
-            if "=" in attrpair:
-                key, val = attrpair.split("=", 1)
-                if len(val) > 2 and val[0] in ["'", '"']: # strip quotes from value
-                    val = val[1:-1]
-                attributes[key.casefold()] = val
+        n = len(rest)
+        i = 0
+        def skip_whitespace(i):
+            while i < n and rest[i].isspace():
+                i += 1
+            return i
+         
+        while i < n:
+            i = skip_whitespace(i)
+            if i >= n:
+                break
+            
+            # read attribute name up until space or =
+            start = i
+            while i < n and rest[i] not in "= ":
+                i += 1
+            attr_name = rest[start:i]
+            i = skip_whitespace(i)
+            
+            # read value
+            if i < n and rest[i] == "=":
+                i = skip_whitespace(i+1)
+                # quoted attribute, read until end quote
+                if i < n and rest[i] in ("'", '"'):
+                    quote = rest[i]
+                    i += 1
+                    start = i
+                    while i < n and rest[i] != quote:
+                        i += 1
+                    attr_val = rest[start:i]
+                    i += 1
+                else:
+                    start = i
+                    while i < n and not rest[i].isspace():
+                        i += 1
+                    attr_val = rest[start:i]
+            
             else:
-                attributes[attrpair.casefold()] = ""
+                attr_val = ""
+
+            attributes[attr_name.casefold()] = attr_val
+        
         return tag, attributes
         
     def implicit_tags(self, tag):

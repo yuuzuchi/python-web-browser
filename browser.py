@@ -1,7 +1,7 @@
 import collections
 import tkinter
 from font_cache import get_font
-from html_parser import HTMLParser, Text, Element
+from html_parser import HTMLParser, Text, Element, print_tree
 from url import URL
 from dataclasses import dataclass
 
@@ -74,6 +74,8 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self.nodes = HTMLParser(body).parse()
+        print_tree(self.nodes)
+        print("\nCalculating layout...\n")
         self._layout()
     
     def _layout(self):
