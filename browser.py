@@ -211,8 +211,10 @@ class Layout:
                         first = False
                         self.word(line, wrap=False)
                 else:
+                    # no newlines in pre block, send entire text
                     self.word(tree.text, wrap=False)
             else:
+                # no pre block, process word by word
                 self.current_font = get_font(size=size, style=self.style, weight=self.weight)
                 for word in tree.text.split():
                     self.word(word)
@@ -235,6 +237,7 @@ class Layout:
             self.width_cache[font_id][word_nohyphen] = w
             
         if wrap and self.cx + w > self.width - MARGINS[2]:
+            # word cannot be hyphenated, line break now
             if '\u00AD' not in word:
                 self.flush()
             else:
@@ -310,7 +313,7 @@ if __name__ == "__main__":
             options["rtl"] = True
         else:
             url = arg
-    url = url or "file:///home/yuzu/Documents/browser-dev/hi"
+    url = url or "file:///home/yuzu/Documents/browser-dev/parsetest"
     print(url)
     Browser(options).load(URL(url))
     tkinter.mainloop()

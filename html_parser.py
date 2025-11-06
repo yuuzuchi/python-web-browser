@@ -8,6 +8,10 @@ HEAD_TAGS = [
     "link", "meta", "title", "style", "script",
 ]
 
+FORMAT_TAGS = [
+    "b", "strong", "i", "em", "mark", "small", "big", "del", "ins", "sub", "sup"
+]
+
 class Text:
     def __init__(self, text, parent):
         self.text = text
@@ -52,6 +56,14 @@ class HTMLParser:
                 elif self.body.startswith("gt;", i+1):
                     text.append(">")
                     i += 4
+                    continue
+                elif self.body.startswith("quot;", i+1):
+                    text.append('"')
+                    i += 6
+                    continue
+                elif self.body.startswith("#39;", i+1):
+                    text.append("'")
+                    i += 5
                     continue
                 elif self.body.startswith("shy;", i+1):
                     text.append("\u00AD")
@@ -125,11 +137,18 @@ class HTMLParser:
         self.implicit_tags(tag)
         if tag.startswith("/"):
             if len(self.unfinished) == 1: return
-            # finish previous node
-            # not creating a closing tag, just marking an opening one as finished
-            node = self.unfinished.pop()
-            parent = self.unfinished[-1]
-            parent.children.append(node)
+            if tag[1:] in FORMAT_TAGS:
+                # mis-nested formatting tags, e.g. <u> hi <b></u> Bold <i> both </b> italic </i>
+                # when encountering a closing formatting tag,
+                # read from unfinished top to bottom into a list UNTIL a matching opening tag is found
+                # the next time implicit_tags is called, place each tag in the list
+                self.close_formatting(tag[1:])
+            else:
+                # finish previous node
+                # not creating a closing tag, just marking an opening one as finished
+                node = self.unfinished.pop()
+                parent = self.unfinished[-1]
+                parent.children.append(node)
         elif tag in SELF_CLOSING_TAGS:
             # add an already finished tag
             parent = self.unfinished[-1]
@@ -239,6 +258,24 @@ class HTMLParser:
 
             break
             
+    def close_formatting(self, tag):
+        reopen = []
+        
+        # go backwards and finish any open format tags UNTIL we see a matching tag
+        while True:
+            top = self.unfinished[-1].tag            
+            if top not in FORMAT_TAGS: return
+            
+            top = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(top)
+            
+            if top.tag == tag: break
+            reopen.append(top.tag) # don't need to re-open the actual requested tag
+        
+        # reopen all of our tags, in reverse order
+        while reopen:
+            self.add_tag(reopen.pop())
             
 def print_tree(node, indent=0):
     print("." * indent, node)

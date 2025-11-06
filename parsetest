@@ -9,7 +9,7 @@
         <p1>i shouldn't be visible!</p1>
         -->
     <p1>before<!--skip me-->after</p1>
-    <b>Bold <i>both</b> italic</i>
+    <b>Bold <big><i>(big bold italic)</b> (big italic)</big> italic</i> normal
 
     <p>hello
     <p>world</p>
