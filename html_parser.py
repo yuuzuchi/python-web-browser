@@ -277,17 +277,34 @@ class HTMLParser:
         while reopen:
             self.add_tag(reopen.pop())
             
-def print_tree(node, indent=0):
-    print("." * indent, node)
+def print_tree(node, source=False, indent=0): # source mode: print tag attributes and closing tags
+    spacing = "    " * indent
+    if isinstance(node, Text):
+        return node.text
+    
+    if len(node.children) == 1 and isinstance(node.children[0], Text) and "\n" not in node.children[0].text:
+        return f"{spacing}<{node.tag}>{node.children[0].text}</{node.tag}>"
+    
+    open = f"{spacing}<{node.tag}>"
+    inner = []
     for child in node.children:
-        print_tree(child, indent + 2)
+        if isinstance(child, Text) and node.tag != "pre":
+            text = child.text.strip()
+            if text:
+                inner.append(f"{'    '*(indent+1)}{text}")
+        else:
+            inner.append(print_tree(child, source, indent+1))
+    close = f"{spacing}</{node.tag}>"
+    if source:
+        return "\n".join([open] + inner + [close])
+    return "\n".join([open] + inner)    
 
 if __name__ == "__main__":
     from url import URL
     import sys
-    url = "file:///home/yuzu/Documents/browser-dev/parsetest"
+    url = "file:///home/yuzu/Documents/browser-dev/hi"
     if len(sys.argv) > 1:
         url = sys.argv[1]
     body = URL(url).request()
     nodes = HTMLParser(body).parse()
-    print_tree(nodes)
+    print(print_tree(nodes, source=True))

@@ -1,11 +1,11 @@
 # Simple Python Web Browser
 
-Demonstrates low-level HTTP(S) requests using sockets and basic HTML text extraction. Renders elements to a TKinter window.
+Demonstrates low-level HTTP(S) requests using sockets and HTML text extraction with a parser. Renders elements with TKinter. 
 
 ## What it does
 - Performs simple HTTP/HTTPS GET requests (HTTP/1.1).
 - Supports `file://` and `data:` URLs.
-- Supports `view-source:` prefix to show HTML source with angle brackets escaped.
+- Supports `view-source:` prefix to show HTML source with angle brackets escaped. (Only for url.py)
 - Supports chunking and gzip compression.
 - Automatically follows redirects.
 
@@ -35,3 +35,6 @@ python3 browser.py "data:text/plain;base64,SGVsbG8gV29ybGQh"
 # View the source (angle brackets escaped)
 python3 browser.py "view-source:http://example.org/"
 ```
+
+## TODO:
+- Source mode with syntax highlighting
