@@ -285,7 +285,7 @@ def print_tree(node, source=False, indent=0): # source mode: print tag attribute
     if len(node.children) == 1 and isinstance(node.children[0], Text) and "\n" not in node.children[0].text:
         return f"{spacing}<{node.tag}>{node.children[0].text}</{node.tag}>"
     
-    open = f"{spacing}<{node.tag}>"
+    open = f"{spacing}<{node.tag} {node.attributes}>"
     inner = []
     for child in node.children:
         if isinstance(child, Text) and node.tag != "pre":
@@ -297,7 +297,8 @@ def print_tree(node, source=False, indent=0): # source mode: print tag attribute
     close = f"{spacing}</{node.tag}>"
     if source:
         return "\n".join([open] + inner + [close])
-    return "\n".join([open] + inner)    
+    return "\n".join([open] + inner)
+    
 
 if __name__ == "__main__":
     from url import URL

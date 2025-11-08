@@ -77,10 +77,19 @@ class BlockLayout:
     def paint(self):
         cmds = []
         # Color pre tags darker
-        if isinstance(self.node, Element) and self.node.tag == "pre":
-            x2, y2 = self.x + self.width, self.y + self.height
-            cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
-            
+        if isinstance(self.node, Element):
+            if self.node.tag == "pre":
+                x2, y2 = self.x + self.width, self.y + self.height
+                cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+
+            elif self.node.tag == "nav" and self.node.attributes.get('class') == 'links':
+                x2, y2 = self.x + self.width, self.y + self.height
+                cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+
+            elif self.node.tag == "nav" and self.node.attributes.get('class') == 'toc':
+                x2, y2 = self.x + self.width, self.y + self.height
+                cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+                
         if self.layout_mode() == "inline":
             for x, y, word, font in self.display_list:
                 cmds.append(DrawText(x, y, word, font))
@@ -105,6 +114,7 @@ class BlockLayout:
     
     def layout(self):
         # determine position of our block
+        
         self.x = self.parent.x
         self.width = self.parent.width
         self.y = self.previous.y + self.previous.height if self.previous else self.parent.y
@@ -113,6 +123,8 @@ class BlockLayout:
         if mode == "block":
             previous = None
             for child in self.node.children:
+                if isinstance(child, Element) and child.tag == "head":
+                    continue
                 nxt = BlockLayout(child, self, previous, self.width_cache)
                 self.children.append(nxt)
                 previous = nxt
@@ -127,6 +139,7 @@ class BlockLayout:
         self.height = sum([child.height for child in self.children]) if mode == "block" else self.cy
     
     def open_tag(self, tag):
+        tag, attributes = tag.tag, tag.attributes
         if tag in ("i", "em"):
             self.style = "italic"
         elif tag in ("b", "strong"):
@@ -147,8 +160,12 @@ class BlockLayout:
         elif tag == "pre":
             self.pre = True
             self.flush()
+        elif "nav" in tag:# and attributes.get('id') == "toc":
+            print("wow", attributes)
+            self.cy += self.current_font.cached_metrics['linespace'] * 1.25
         
     def close_tag(self, tag):
+        tag, attributes = tag.tag, tag.attributes
         if tag in ("i", "em"):
             self.style = "roman"
         elif tag in ("b", "strong"):
@@ -169,6 +186,8 @@ class BlockLayout:
         elif tag == "pre":
             self.pre = False
             self.flush()
+        elif "nav" in tag:
+            print(tag)
         
     def recurse(self, tree):
         if isinstance(tree, Text):
@@ -195,10 +214,10 @@ class BlockLayout:
                 for word in tree.text.split():
                     self.word(word)
         else:
-            self.open_tag(tree.tag)
+            self.open_tag(tree)
             for child in tree.children:
                 self.recurse(child)
-            self.close_tag(tree.tag)                
+            self.close_tag(tree)                
 
     def word(self, word, wrap=True):
         # get width of word for given style and weight

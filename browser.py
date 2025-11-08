@@ -128,6 +128,12 @@ class Browser:
             self.scroll.pos = self.text_height * bar_y / self.ctx.height
             self.constrain_scroll()
             self.draw()
+        else:
+            # absolute scroll
+            screen_percent = e.y / self.ctx.height
+            self.scroll.pos = (self.text_height - self.ctx.height) * screen_percent
+            self.constrain_scroll()
+            self.draw()
     
     def on_mouse_up(self, e):
         self.scroll.is_dragging = False
