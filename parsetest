@@ -2,25 +2,41 @@
 <html>
 
 <head>
-    <p>wow</p>
-
+    <p><b>Comments Test: </b>
     <!-- wwow hello -->
     <!--> wewird malformed comment
         <p1>i shouldn't be visible!</p1>
         -->
-    <p1>before<!--skip me-->after</p1>
-    <p><b>Bold <big><i>(big bold italic)</b> (big italic)</big> italic</i> normal</p>
+    before<!--skip me-->after
+    </p>
 
-    <p>hello
-    <p>world</p>
+    <p>
+        <b>Nested text test:</b>
+        <b>Bold <big><i>(big bold italic)</b> (big italic)</big> italic</i> normal
+    </p>
 
-    <ul>
-        <li>ok
-        <li>ok2
+    <p>
+        <b>Implicit Tags test:</b>
+        <p>hello
+        <p>world</p>
+    
+        <ul>
+            <li>ok
+            <li>ok2
             <ul>
                 <li>another
             </ul>
-    </ul>a<script>we ignore all <tags>in here</tags></script><p>and we outta there</p>
-    <script></script>
-    <p class="ball s<>'quotes'" secondattribute='wwowzers"nice"' thirdattribute integer=3>hi</p>
-    <p>i think we broke it</p>
+        </ul>
+    </p>
+
+    <p>
+        <b>Scripts Test: </b>
+        <script></script>
+<script>we ignore all <tags>in here</tags></script>and we outta there
+    </p>
+
+    <p class="ball s<>'quotes'" secondattribute='wwowzers"nice"' thirdattribute integer=3>Attribute Test</p>
+    <div>
+        <i>Hello, </i><b>world!</b>
+        <p>So it began...</p>
+    </div>

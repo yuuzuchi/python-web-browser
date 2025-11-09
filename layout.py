@@ -38,7 +38,7 @@ class DocumentLayout:
         # clear the tree each time we call layout
         self.children = []
         
-        child = BlockLayout(self.node, self, None, self.width_cache) # <html> node
+        child = BlockLayout([self.node], self, None, self.width_cache) # <html> node
         self.children.append(child)
         self.width = self.ctx.width - 2*MARGINS[0]
         self.x = MARGINS[0]
@@ -50,8 +50,8 @@ class DocumentLayout:
         return []
 
 class BlockLayout:
-    def __init__(self, node, parent, previous, width_cache):
-        self.node = node
+    def __init__(self, nodes: list[Element | Text], parent, previous, width_cache):
+        self.nodes = nodes
         self.parent = parent
         self.previous = previous
         self.children = []
@@ -77,24 +77,44 @@ class BlockLayout:
         self.display_list = []
         self.line = []
         self.cx, self.cy = 0, 0
+        
+    def __repr__(self):
+        nodes = ""
+        children = ""
+        for node in self.nodes:
+            if isinstance(node, Element):
+                nodes += f"{str(node.tag)}, "
+            else:
+                nodes += f"{str(node.text)}, "
+
+        for child in self.children:
+            if isinstance(child, Element):
+                children += f"{str(child.tag)}, "
+            else:
+                children += f"{str(child.text)}, "
+
+        res = f"Nodes: {nodes}, Children: {children}"
+        return res
 
     def paint(self):
         cmds = []
-        # Color pre tags darker
-        if isinstance(self.node, Element):
-            if self.node.tag == "pre":
-                x2, y2 = self.x + self.width, self.y + self.height
-                cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+        if len(self.nodes) == 1:
+            node = self.nodes[0]
+            if isinstance(node, Element):
+                # Color pre tags darker
+                if node.tag == "pre":
+                    x2, y2 = self.x + self.width, self.y + self.height
+                    cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
 
-            elif self.node.tag == "nav" and self.node.attributes.get('class') == 'links':
-                x2, y2 = self.x + self.width, self.y + self.height
-                cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+                elif node.tag == "nav" and node.attributes.get('class') == 'links':
+                    x2, y2 = self.x + self.width, self.y + self.height
+                    cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
 
-            elif self.node.tag == "nav" and self.node.attributes.get('id') == 'toc':
-                cmds.append(DrawRect(self.x, self.y-20, self.x + self.width, self.y, "#e9eaf0"))
-                ToC_font = get_font(family="Courier New", size=16, style="roman", weight="bold")
-                cmds.append(DrawText(self.x, self.y-20, "Table of Contents", ToC_font))
-                
+                elif node.tag == "nav" and node.attributes.get('id') == 'toc':
+                    cmds.append(DrawRect(self.x, self.y-20, self.x + self.width, self.y, "#e9eaf0"))
+                    ToC_font = get_font(family="Courier New", size=16, style="roman", weight="bold")
+                    cmds.append(DrawText(self.x, self.y-20, "Table of Contents", ToC_font))
+                    
         if self.layout_mode() == "inline":
             for x, y, word, font in self.display_list:
                 cmds.append(DrawText(x, y, word, font))
@@ -105,46 +125,80 @@ class BlockLayout:
         """Determine whether to call recurse/flush OR layout_intermediate for each element
            inline = recurse/flush
            block = layout_intermediate"""
-        if isinstance(self.node, Text):
+        if len(self.nodes) > 1:
+            return "inline"
+        if isinstance(self.nodes[0], Text):
             return "inline"
         # if any children that are block element tags:
         # prevents children like <b> from creating a new block
         # if block and inline children both exist, default to block
-        elif any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in self.node.children]):
+        elif any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in self.nodes[0].children]):
             return "block"
-        elif self.node.children:
+        elif self.nodes[0].children:
             return "inline"
         return "block" # self closing tags
     
     def layout(self):
+        mode = self.layout_mode()
+        extra_height = 0
+
         # determine position of our block
         self.x = self.parent.x
         self.width = self.parent.width
-        
-        extra_height = 0
-        if isinstance(self.node, Element) and self.node.tag == "nav" and self.node.attributes.get("id") == "toc":
+        if len(self.nodes) == 1 and isinstance(self.nodes[0], Element) and \
+                self.nodes[0].tag == "nav" and self.nodes[0].attributes.get("id") == "toc":
             extra_height = 20
-
         self.y = (self.previous.y + self.previous.height if self.previous else self.parent.y) + extra_height
-        
-        mode = self.layout_mode()
-        if mode == "block":
-            previous = None
-            for child in self.node.children:
-                if isinstance(child, Element) and child.tag == "head":
-                    continue
-                nxt = BlockLayout(child, self, previous, self.width_cache)
-                self.children.append(nxt)
-                previous = nxt
+
+        # this BlockLayout represents a single Text/Element object
+        if len(self.nodes) == 1:
+            if mode == "block":
+                self._create_children()
+            else:
+                self._init_state()
+                self.recurse(self.nodes[0])
+                self.flush()
+
+        # Represents multiple objects, must be text-like. Recurse over each, then flush
         else:
             self._init_state()
-            self.recurse(self.node)
+            for node in self.nodes:
+                self.recurse(node)
             self.flush()
         
         for child in self.children:
             child.layout()
 
         self.height = (sum([child.height for child in self.children]) if mode == "block" else self.cy) + extra_height
+    
+    def _create_children(self):
+        node = self.nodes[0] # method is ONLY called when BlockLayout represents single node object
+        anonymous_buffer = [] # text-like elements to combine into single BlockLayout
+        previous = None
+        for child in node.children:
+            if isinstance(child, Element) and child.tag in BLOCK_ELEMENTS:
+                if child.tag == "head":
+                    continue
+
+                # flush combinable elements
+                if anonymous_buffer:
+                    nxt = BlockLayout(anonymous_buffer, self, previous, self.width_cache)
+                    anonymous_buffer = []
+                    self.children.append(nxt)
+                    previous = nxt
+                    
+                # then add current block element
+                nxt = BlockLayout([child], self, previous, self.width_cache)
+                self.children.append(nxt)
+                previous = nxt
+            
+            # is type text-like, add to anonymous buffer
+            else:
+                anonymous_buffer.append(child)
+            
+        # flush remaining buffer at end
+        if anonymous_buffer:
+            self.children.append(BlockLayout(anonymous_buffer, self, previous, self.width_cache))
     
     def open_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes

@@ -80,7 +80,7 @@ class Browser:
         body = url.request()
         self.nodes = HTMLParser(body).parse()
         self.document = DocumentLayout(self.nodes, self.ctx)
-        # print(print_tree(self.nodes, source=True))
+        print(print_tree(self.nodes, source=True))
         print("\nCalculating layout...\n")
         self._layout()
     
@@ -154,7 +154,7 @@ if __name__ == "__main__":
             options["rtl"] = True
         else:
             url = arg
-    url = url or "file:///home/yuzu/Documents/browser-dev/hi"
+    url = url or "file:///home/yuzu/Documents/browser-dev/parsetest"
     print(url)
     Browser(options).load(URL(url))
     tkinter.mainloop()

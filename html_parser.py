@@ -303,7 +303,7 @@ def print_tree(node, source=False, indent=0): # source mode: print tag attribute
 if __name__ == "__main__":
     from url import URL
     import sys
-    url = "file:///home/yuzu/Documents/browser-dev/hi"
+    url = "file:///home/yuzu/Documents/browser-dev/parsetest"
     if len(sys.argv) > 1:
         url = sys.argv[1]
     body = URL(url).request()
