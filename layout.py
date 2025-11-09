@@ -16,10 +16,16 @@ BLOCK_ELEMENTS = [
 MARGINS = [10, 10, 20, 10] # left, top, right, bottom
 
 def paint_tree(layout_object, display_list):
-  display_list.extend(layout_object.paint())
+    display_list.extend(layout_object.paint())
 
-  for child in layout_object.children:
-    paint_tree(child, display_list)
+    for child in layout_object.children:
+        paint_tree(child, display_list)
+    
+def tree_to_list(tree, l: list):
+    l.append(tree)
+    for child in tree.children:
+        tree_to_list(child, l)
+    return l
 
 class DocumentLayout:
     def __init__(self, node, ctx):
@@ -101,19 +107,28 @@ class BlockLayout:
         if len(self.nodes) == 1:
             node = self.nodes[0]
             if isinstance(node, Element):
-                # Color pre tags darker
-                if node.tag == "pre":
+                bgcolor = node.style.get("background-color", "transparent")
+                
+                if bgcolor != "transparent":
                     x2, y2 = self.x + self.width, self.y + self.height
-                    cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+                    rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+                    cmds.append(rect)                    
+                # # Color pre tags darker
+                # if node.tag == "pre":
+                #     x2, y2 = self.x + self.width, self.y + self.height
+                #     cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
 
-                elif node.tag == "nav" and node.attributes.get('class') == 'links':
-                    x2, y2 = self.x + self.width, self.y + self.height
-                    cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+                # elif node.tag == "nav" and node.attributes.get('class') == 'links':
+                #     x2, y2 = self.x + self.width, self.y + self.height
+                #     cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
 
-                elif node.tag == "nav" and node.attributes.get('id') == 'toc':
-                    cmds.append(DrawRect(self.x, self.y-20, self.x + self.width, self.y, "#e9eaf0"))
-                    ToC_font = get_font(family="Courier New", size=16, style="roman", weight="bold")
-                    cmds.append(DrawText(self.x, self.y-20, "Table of Contents", ToC_font))
+                # elif node.tag == "nav" and node.attributes.get('id') == 'toc':
+                #     cmds.append(DrawRect(self.x, self.y-20, self.x + self.width, self.y, "#e9eaf0"))
+                #     ToC_font = get_font(family="Courier New", size=16, style="roman", weight="bold")
+                #     cmds.append(DrawText(self.x, self.y-20, "Table of Contents", ToC_font))
+                    
+                # elif node.tag == "li" and isinstance(node.parent, Element) and node.parent.tag == "ul":
+                #     self.current_font
                     
         if self.layout_mode() == "inline":
             for x, y, word, font in self.display_list:
@@ -188,6 +203,7 @@ class BlockLayout:
                     previous = nxt
                     
                 # then add current block element
+                # here is where we would handle <li> indenting by appending an InlineLayout with a bullet point
                 nxt = BlockLayout([child], self, previous, self.width_cache)
                 self.children.append(nxt)
                 previous = nxt

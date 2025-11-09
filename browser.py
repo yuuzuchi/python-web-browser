@@ -1,11 +1,13 @@
 import tkinter
-from html_parser import HTMLParser, print_tree
+from html_parser import Element, HTMLParser, print_tree
 from url import URL
 from dataclasses import dataclass
-from layout import DocumentLayout, paint_tree, MARGINS
+from layout import DocumentLayout, paint_tree, tree_to_list, MARGINS
+from css_parser import CSSParser, style, print_rules
 import time
         
 SCROLL_STEP = 60
+DEFAULT_STYLE_SHEET = CSSParser(open("browser.css").read()).parse()
 
 @dataclass
 class WindowContext:
@@ -47,12 +49,15 @@ class Browser:
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
         self.scroll = scrollstate()
-        self.nodes = []
+        self.rootnode = []
         self.text_height = 0
         self.rtl = options.get("rtl", False)
         
         self.document = None
         self.display_list = []
+
+        # keep CLI flags accessible to other methods
+        self.options = options
         
     def resize_canvas(self, e):
         self.ctx.width = e.width
@@ -78,9 +83,28 @@ class Browser:
     
     def load(self, url: URL):
         body = url.request()
-        self.nodes = HTMLParser(body).parse()
-        self.document = DocumentLayout(self.nodes, self.ctx)
-        print(print_tree(self.nodes, source=True))
+        self.rootnode = HTMLParser(body).parse()
+        rules = DEFAULT_STYLE_SHEET.copy()
+        links = [node.attributes ["href"]
+                 for node in tree_to_list(self.rootnode, [])
+                 if isinstance(node, Element) and node.tag == "link"
+                 and node.attributes.get("rel") == "stylesheet"
+                 and "href" in node.attributes]
+        for link in links:
+            style_url = url.resolve(link)
+            try:
+                body = style_url.request()
+            except:
+                continue
+            rules.extend(CSSParser(body).parse())
+
+        style(self.rootnode, rules)
+        self.document = DocumentLayout(self.rootnode, self.ctx)
+        # conditional debug output controlled by CLI flags:
+        if self.options.get("t", False):
+            print(print_tree(self.rootnode, source=True))
+        if self.options.get("c", False):
+            print_rules(rules)
         print("\nCalculating layout...\n")
         self._layout()
     
@@ -149,9 +173,13 @@ if __name__ == "__main__":
     url = ""
     for arg in sys.argv[1:]:
         if arg in ("-h", "help"):
-            print("Usage: python3 browser.py [-rtl, -h] <url>")
+            print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] <url>")
         elif arg == "-rtl":
             options["rtl"] = True
+        elif arg == "-c":
+            options["c"] = True
+        elif arg == "-t":
+            options["t"] = True
         else:
             url = arg
     url = url or "file:///home/yuzu/Documents/browser-dev/parsetest"
