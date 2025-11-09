@@ -13,6 +13,10 @@ BLOCK_ELEMENTS = [
     "legend", "details", "summary"
 ]
 
+NO_RENDER_ELEMENTS = [
+    "script", "style", "title", "meta", "link", "base", "template"
+]
+
 MARGINS = [10, 10, 20, 10] # left, top, right, bottom
 
 def paint_tree(layout_object, display_list):
@@ -167,6 +171,9 @@ class BlockLayout:
 
         # this BlockLayout represents a single Text/Element object
         if len(self.nodes) == 1:
+            # don't render script or style tags
+            # if isinstance(self.nodes[0], Element):
+            #     print(self.nodes[0].tag)
             if mode == "block":
                 self._create_children()
             else:
@@ -178,6 +185,8 @@ class BlockLayout:
         else:
             self._init_state()
             for node in self.nodes:
+                if isinstance(node, Element):
+                    print(node.tag)
                 self.recurse(node)
             self.flush()
         
@@ -192,7 +201,7 @@ class BlockLayout:
         previous = None
         for child in node.children:
             if isinstance(child, Element) and child.tag in BLOCK_ELEMENTS:
-                if child.tag == "head":
+                if child.tag in "head":
                     continue
 
                 # flush combinable elements
@@ -280,10 +289,10 @@ class BlockLayout:
                 self.current_font = get_font(size=size, style=self.style, weight=self.weight)
                 for word in tree.text.split():
                     self.word(word)
-        else:
+        elif tree.tag not in NO_RENDER_ELEMENTS:
             self.open_tag(tree)
             for child in tree.children:
-                self.recurse(child)
+                    self.recurse(child)
             self.close_tag(tree)                
 
     def word(self, word, wrap=True):

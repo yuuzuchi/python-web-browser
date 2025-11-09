@@ -84,27 +84,42 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self.rootnode = HTMLParser(body).parse()
-        rules = DEFAULT_STYLE_SHEET.copy()
-        links = [node.attributes ["href"]
-                 for node in tree_to_list(self.rootnode, [])
-                 if isinstance(node, Element) and node.tag == "link"
-                 and node.attributes.get("rel") == "stylesheet"
-                 and "href" in node.attributes]
-        for link in links:
-            style_url = url.resolve(link)
-            try:
-                body = style_url.request()
-            except:
-                continue
-            rules.extend(CSSParser(body).parse())
 
+        # css rules
+        rules = DEFAULT_STYLE_SHEET.copy()
+        tree_as_list = tree_to_list(self.rootnode, [])
+        for i, node in enumerate(tree_as_list):
+            # external stylesheets
+            if isinstance(node, Element) and node.tag == "link" \
+                    and node.attributes.get("rel") == "stylesheet" \
+                    and "href" in node.attributes:
+                style_url = url.resolve(node.attributes['href'])
+                try:
+                    body = style_url.request()
+                    rules.extend(CSSParser(body).parse())
+                except:
+                    print("Could not fetch stylesheet from", body)
+
+            # style tag stylesheets
+            if i < len(tree_as_list)-1 and isinstance(node, Element) and node.tag == "style":
+                try:
+                    rules.extend(CSSParser(tree_as_list[i+1].text).parse())
+                except:
+                    print("inline style", tree_as_list[i+1], "could not be parsed")
+
+        print(tree_as_list)
+            
+
+        start_time = time.perf_counter()
         style(self.rootnode, rules)
+        elapsed_time = time.perf_counter() - start_time
         self.document = DocumentLayout(self.rootnode, self.ctx)
         # conditional debug output controlled by CLI flags:
         if self.options.get("t", False):
             print(print_tree(self.rootnode, source=True))
         if self.options.get("c", False):
             print_rules(rules)
+            print(f"style() in{elapsed_time: .6f} seconds, {len(rules)} rules")
         print("\nCalculating layout...\n")
         self._layout()
     
