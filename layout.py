@@ -1,4 +1,5 @@
 import collections
+import random
 from draw import DrawRect, DrawText
 from font_cache import get_font
 from html_parser import Element, Text
@@ -34,6 +35,9 @@ class DocumentLayout:
         self.height = None
     
     def layout(self):
+        # clear the tree each time we call layout
+        self.children = []
+        
         child = BlockLayout(self.node, self, None, self.width_cache) # <html> node
         self.children.append(child)
         self.width = self.ctx.width - 2*MARGINS[0]
@@ -86,14 +90,14 @@ class BlockLayout:
                 x2, y2 = self.x + self.width, self.y + self.height
                 cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
 
-            elif self.node.tag == "nav" and self.node.attributes.get('class') == 'toc':
-                x2, y2 = self.x + self.width, self.y + self.height
-                cmds.append(DrawRect(self.x, self.y, x2, y2, "#e9eaf0"))
+            elif self.node.tag == "nav" and self.node.attributes.get('id') == 'toc':
+                cmds.append(DrawRect(self.x, self.y-20, self.x + self.width, self.y, "#e9eaf0"))
+                ToC_font = get_font(family="Courier New", size=16, style="roman", weight="bold")
+                cmds.append(DrawText(self.x, self.y-20, "Table of Contents", ToC_font))
                 
         if self.layout_mode() == "inline":
             for x, y, word, font in self.display_list:
                 cmds.append(DrawText(x, y, word, font))
-        self.display_list = [] # clear output for next paint call
             
         return cmds
         
@@ -114,10 +118,14 @@ class BlockLayout:
     
     def layout(self):
         # determine position of our block
-        
         self.x = self.parent.x
         self.width = self.parent.width
-        self.y = self.previous.y + self.previous.height if self.previous else self.parent.y
+        
+        extra_height = 0
+        if isinstance(self.node, Element) and self.node.tag == "nav" and self.node.attributes.get("id") == "toc":
+            extra_height = 20
+
+        self.y = (self.previous.y + self.previous.height if self.previous else self.parent.y) + extra_height
         
         mode = self.layout_mode()
         if mode == "block":
@@ -136,7 +144,7 @@ class BlockLayout:
         for child in self.children:
             child.layout()
 
-        self.height = sum([child.height for child in self.children]) if mode == "block" else self.cy
+        self.height = (sum([child.height for child in self.children]) if mode == "block" else self.cy) + extra_height
     
     def open_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
@@ -160,9 +168,6 @@ class BlockLayout:
         elif tag == "pre":
             self.pre = True
             self.flush()
-        elif "nav" in tag:# and attributes.get('id') == "toc":
-            print("wow", attributes)
-            self.cy += self.current_font.cached_metrics['linespace'] * 1.25
         
     def close_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
@@ -186,8 +191,6 @@ class BlockLayout:
         elif tag == "pre":
             self.pre = False
             self.flush()
-        elif "nav" in tag:
-            print(tag)
         
     def recurse(self, tree):
         if isinstance(tree, Text):
@@ -195,19 +198,13 @@ class BlockLayout:
             size = self.size/2 if self.supersub.startswith("s") else self.size
 
             if self.pre:
-                # pre block, print line by line and dont wrap
                 # within a tag, the font will stay the same
                 self.current_font = get_font(family="Courier New", size=size, style=self.style, weight=self.weight)
-                if "\n" in tree.text:
-                    first = True
-                    for line in tree.text.split("\n"):
-                        if not first:
-                            self.flush()
-                        first = False
-                        self.word(line, wrap=False)
-                else:
-                    # no newlines in pre block, send entire text
-                    self.word(tree.text, wrap=False)
+                newline = "\n" in tree.text
+                for line in tree.text.split("\n"):
+                    self.word(line, wrap=False)
+                    if newline: 
+                        self.flush()
             else:
                 # no pre block, process word by word
                 self.current_font = get_font(size=size, style=self.style, weight=self.weight)

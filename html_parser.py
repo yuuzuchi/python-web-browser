@@ -252,7 +252,7 @@ class HTMLParser:
                 continue
             
             # nested lists: in a <li>, and see another <li>
-            if top == "li" and tag != "/li":
+            if top == "li" and tag == "li":
                 self.add_tag("/li")
                 continue
 

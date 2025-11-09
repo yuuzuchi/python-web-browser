@@ -3,6 +3,7 @@ from html_parser import HTMLParser, print_tree
 from url import URL
 from dataclasses import dataclass
 from layout import DocumentLayout, paint_tree, MARGINS
+import time
         
 SCROLL_STEP = 60
 
@@ -79,16 +80,18 @@ class Browser:
         body = url.request()
         self.nodes = HTMLParser(body).parse()
         self.document = DocumentLayout(self.nodes, self.ctx)
-        print(print_tree(self.nodes, source=True))
+        # print(print_tree(self.nodes, source=True))
         print("\nCalculating layout...\n")
         self._layout()
     
     def _layout(self):
+        start_time = time.perf_counter()
         self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)
+        elapsed_time = time.perf_counter() - start_time
+        print(f"layout() {self.ctx.width}x{self.ctx.height} in{elapsed_time: .6f} seconds, {len(self.display_list)} nodes")
         self.text_height = max(self.document.height, 0)
-        print(self.text_height)
         self.constrain_scroll()
         self.draw()
         
@@ -151,7 +154,7 @@ if __name__ == "__main__":
             options["rtl"] = True
         else:
             url = arg
-    url = url or "file:///home/yuzu/Documents/browser-dev/parsetest"
+    url = url or "file:///home/yuzu/Documents/browser-dev/hi"
     print(url)
     Browser(options).load(URL(url))
     tkinter.mainloop()
