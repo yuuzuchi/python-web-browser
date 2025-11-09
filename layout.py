@@ -171,9 +171,6 @@ class BlockLayout:
 
         # this BlockLayout represents a single Text/Element object
         if len(self.nodes) == 1:
-            # don't render script or style tags
-            # if isinstance(self.nodes[0], Element):
-            #     print(self.nodes[0].tag)
             if mode == "block":
                 self._create_children()
             else:
@@ -185,8 +182,6 @@ class BlockLayout:
         else:
             self._init_state()
             for node in self.nodes:
-                if isinstance(node, Element):
-                    print(node.tag)
                 self.recurse(node)
             self.flush()
         

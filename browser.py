@@ -6,7 +6,6 @@ from layout import DocumentLayout, paint_tree, tree_to_list, MARGINS
 from css_parser import CSSParser, style, print_rules
 import time
         
-SCROLL_STEP = 60
 DEFAULT_STYLE_SHEET = CSSParser(open("browser.css").read()).parse()
 
 @dataclass
@@ -21,6 +20,10 @@ class scrollstate:
     pos: int = 0
     bar_y: int = 0
     bar_height: int = 0
+    velocity: float = 0
+    friction: float = 0.7
+    step: int = 70
+    target_pos: int = 0
 
 class Browser:
     def __init__(self, options: dict={}):
@@ -64,6 +67,12 @@ class Browser:
         self.ctx.height = e.height
         self.canvas.config(width=e.width, height=e.height)
         self._layout()
+        
+    def update(self):
+        self.update_scroll()
+        self.draw()
+        
+        self.window.after(8, self.update)
     
     def draw(self):
         self.canvas.delete("all")
@@ -107,9 +116,6 @@ class Browser:
                 except:
                     print("inline style", tree_as_list[i+1], "could not be parsed")
 
-        print(tree_as_list)
-            
-
         start_time = time.perf_counter()
         style(self.rootnode, rules)
         elapsed_time = time.perf_counter() - start_time
@@ -122,6 +128,7 @@ class Browser:
             print(f"style() in{elapsed_time: .6f} seconds, {len(rules)} rules")
         print("\nCalculating layout...\n")
         self._layout()
+        self.update()
     
     def _layout(self):
         start_time = time.perf_counter()
@@ -131,30 +138,37 @@ class Browser:
         elapsed_time = time.perf_counter() - start_time
         print(f"layout() {self.ctx.width}x{self.ctx.height} in{elapsed_time: .6f} seconds, {len(self.display_list)} nodes")
         self.text_height = max(self.document.height, 0)
-        self.constrain_scroll()
-        self.draw()
         
     def scrolldown(self, e):
         """Down arrow / Linux mouse wheel down"""
-        self.scroll.pos += SCROLL_STEP
-        self.constrain_scroll()
-        self.draw()
+        self.scroll.velocity += 4
+        self.scroll.target_pos += self.scroll.step
     
     def scrollup(self, e):
         """Up arrow / Linux mouse wheel up"""
-        self.scroll.pos -= SCROLL_STEP
-        self.constrain_scroll()
-        self.draw()
+        self.scroll.velocity -= 4
+        self.scroll.target_pos -= self.scroll.step
         
     def scrolldelta(self, e):
         """Windows / macOS scroll"""
-        self.scroll.pos = self.scroll.pos + e.delta
-        self.constrain_sroll()
-        self.draw()
+        self.scroll.velocity += self.scroll.step / 2 * e.delta
         
-    def constrain_scroll(self):
+    def update_scroll(self):
+        self.scroll.pos += self.scroll.velocity
+        self.scroll.velocity *= self.scroll.friction
+        self.scroll.pos += (self.scroll.target_pos - self.scroll.pos) * 0.28
+
+        # snap to 0
+        if abs(self.scroll.velocity) < 0.1:
+            self.scroll.velocity = 0
+        if abs(self.scroll.target_pos - self.scroll.pos) < 0.5:
+            self.scroll.pos = self.scroll.target_pos
+        
+        # constrain
         self.scroll.pos = min(self.scroll.pos, self.text_height-self.ctx.height+MARGINS[3])
         self.scroll.pos = max(0, self.scroll.pos)
+        self.scroll.target_pos = min(self.scroll.target_pos, self.text_height-self.ctx.height+MARGINS[3])
+        self.scroll.target_pos = max(0, self.scroll.target_pos)
 
     def on_mouse_down(self, e):
         # handle scrollbar drag
@@ -167,16 +181,13 @@ class Browser:
         # scrollbar drag
         if self.scroll.is_dragging:
             bar_y = e.y - self.scroll.drag_offset
-            self.scroll.pos = self.text_height * bar_y / self.ctx.height
-            self.constrain_scroll()
-            self.draw()
+            self.scroll.target_pos = self.scroll.pos = self.text_height * bar_y / self.ctx.height
+
+        # absolute scroll
         else:
-            # absolute scroll
             screen_percent = e.y / self.ctx.height
-            self.scroll.pos = (self.text_height - self.ctx.height) * screen_percent
-            self.constrain_scroll()
-            self.draw()
-    
+            self.scroll.target_pos = self.scroll.pos = (self.text_height - self.ctx.height) * screen_percent
+
     def on_mouse_up(self, e):
         self.scroll.is_dragging = False
 
