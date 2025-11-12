@@ -1,43 +1,137 @@
-from html_parser import Element
+from html_parser import Element, Text
+from dataclasses import dataclass, field
 
-class TagSelector:
-    def __init__(self, tag):
+IMPORTANCE_PRIORITY = 10_000
+
+INHERITED_PROPERTIES = {
+    "font-size": "16px",
+    "font-style": "normal",
+    "font-weight": "normal",
+    "font-family": "Crimson Pro",
+    "color": "black",
+
+    "white-space": "normal",
+}
+
+# font shorthand keywords
+STYLE = {"italic", "oblique"}
+VARIANT = {"small-caps"}
+WEIGHT = {"bold", "bolder", "lighter"}
+STRETCH = {"condensed", "expanded", "semi-condensed", "extra-condensed", "extra-expanded", "ultra-condensed", "ultra-expanded"}
+SIZE = {"px", "pt", "em", "rem", "%", "vh", "vw"}
+
+class Selector:
+    def __init__(self, specificity: tuple[int, int, int]):
+        """(num_ids, num_classes, num_tags) - for priority calculation"""
+        self.specificity = specificity 
+
+class TagSelector(Selector):
+    def __init__(self, tag: str):
+        super().__init__((0, 0, 1))
         self.tag = tag
         
-    def __repr__(self):
+    def __str__(self):
         return self.tag
 
-    def matches(self, node):
+    def matches(self, node: Element | Text):
         return isinstance(node, Element) and self.tag == node.tag
     
-class DescendantSelector:
-    def __init__(self, ancestor, descendant):
+class ClassSelector(Selector):
+    def __init__(self, clss: str):
+        classes = clss.split(".")[1:] # ignore leading dot
+        super().__init__((0, len(classes), 0))
+        self.clss = clss
+        self.classes = classes
+        
+    def __str__(self):
+        return self.clss
+        
+    def matches(self, node: Element | Text):
+        if not isinstance(node, Element):
+            return False
+        for clss in self.classes:
+            if not clss in node.classes:
+                return False
+        return True
+
+class SelectorSequence(Selector):
+    def __init__(self, tag: TagSelector, clss: ClassSelector):
+        combined = tuple(a + b for a, b in zip(tag.specificity, clss.specificity))
+        super().__init__(combined)
+        self.tag = tag
+        self.clss = clss
+        self.selector = f"{self.tag.tag}{self.clss.clss}"
+        
+    def __str__(self):
+        return self.selector
+    
+    def matches(self, node: Element | Text):
+        return self.tag.matches(node) and self.clss.matches(node)
+
+class DescendantSelector(Selector):
+    def __init__(self, ancestor: Selector, descendant: Selector):
+        combined = tuple(a + b for a, b in zip(ancestor.specificity, descendant.specificity))
+        super().__init__(combined)
         self.ancestor = ancestor
         self.descendant = descendant
         
-    def __repr__(self):
+    def __str__(self):
         # collect tags from the chain into a stack (right-to-left)
         parts = []
         cur = self
         while isinstance(cur, DescendantSelector):
-            parts.append(cur.descendant.tag)
+            parts.append(str(cur.descendant))
             cur = cur.ancestor
-        # cur is now a TagSelector; include its tag
-        parts.append(cur.tag)
+        # cur is now a Tag/Class Selector; include its tag/class
+        parts.append(str(cur))
         parts.reverse()
         return " ".join(parts)
     
-    def matches(self, node):
+    def matches(self, node: Element | Text):
         if not self.descendant.matches(node): return False
         while node.parent:
             if self.ancestor.matches(node.parent): return True
             node = node.parent
         return False
+    
+@dataclass
+class Declaration:
+    prop: str
+    val: str
+    important: bool
+    origin_priority: int
+    rule_order: int
+    sort_key: tuple | None = field(default=None, init=False)
+    
+    def with_specificity(self, specificity):
+        decl = Declaration(self.prop, self.val, self.important, self.origin_priority, self.rule_order)
+        decl.sort_key = (self.important, self.origin_priority, specificity, self.rule_order)
+        return decl
+    
+    def set_specificity(self, specificity):
+        self.specificity = specificity
+        self.sort_key = (self.important, self.origin_priority, specificity, self.rule_order)
+
+    def __str__(self):
+        return f"{self.prop}: {self.val}{" !important" if self.important else ""};"
+
+@dataclass
+class Rule:
+    selector: Selector
+    declarations: list[Declaration]
+
+    def __str__(self):
+        return f"{str(self.selector)}\n{"\n".join("  " + str(decl) for decl in self.declarations)}"
+
+# def cascade_priority(r: Rule):
+#     selector, body = r.selector, r.rule
+#     return selector.priority
 
 class CSSParser:
     def __init__(self, s):
         self.s = s
         self.i = 0
+        self.decl_count = 0
     
     def whitespace(self):
         while self.i < len(self.s) and self.s[self.i].isspace():
@@ -47,51 +141,109 @@ class CSSParser:
         res = []
         start = self.i
         while self.i < len(self.s):
-            if self.s[self.i].isalnum() or self.s[self.i] in "#-.%":
+            if self.s[self.i].isalnum() or self.s[self.i] in "!@#-.%":
                 res.append(self.s[self.i])
                 self.i += 1
             elif self.s.startswith("/*", self.i): # ignore comments
-                self.ignore_until(["*/"])
+                self.consume_until(["*/"])
                 self.i += 2
+                self.whitespace()
+            elif self.s[self.i] == "/" and self.i == start:
+                res.append(self.s[self.i])
+                self.i += 1
                 self.whitespace()
             else:
                 break
         if not self.i > start:
-            raise Exception("Parsing error")
+            raise Exception("Parsing error: no words parsed")
         return ''.join(res)
 
     def literal(self, literal):
         if not (self.i < len(self.s) and self.s[self.i] == literal):
-            raise Exception(f"Parsing error: Expected literal {literal} but saw {self.s[self.i]} instead")
+            raise Exception(f"Parsing error: Expected literal {literal}")
         self.i += 1
     
-    def pair(self):
+    def string(self):
+        if not (self.i < len(self.s) and self.s[self.i] in ("'", '"')):
+            raise Exception("Parsing error: not at string start")
+        quote = self.s[self.i]
+        self.i += 1
+        res = []
+        while self.i < len(self.s):
+            c = self.s[self.i]
+            if c == '\\':
+                self.i += 1
+                if self.i < len(self.s):
+                    res.append(self.s[self.i])
+                    self.i += 1
+                else:
+                    raise Exception("unterminated escape in string")
+            elif c == quote:
+                self.i += 1
+                return ''.join(res)
+            else:
+                res.append(c)
+                self.i += 1
+        raise Exception("Parsing error: unterminated string")
+
+    def value(self) -> tuple[str, bool]:
+        out = []
+        important = False
+        while self.i < len(self.s) and self.s[self.i] not in ";}":
+            # parse string or word until semicolon
+            if self.s[self.i] in ("'", '"'):
+                out.append(self.string())
+            else:
+                word = self.word()
+                if word != "!important":
+                    out.append(word)
+                    important = False # !important must be the last value
+                else:
+                    important = True
+            self.whitespace()
+        return out, important
+
+    def pair(self) -> tuple[str, list, bool]:
         prop = self.word()
         self.whitespace()
         self.literal(":")
         self.whitespace()
-        val = self.word()
-        return prop.casefold(), val
+        val, important = self.value()
+        return prop, val, important
 
-    def body(self):
-        pairs = {}
+    def body(self, origin_priority, specificity=None) -> list[Declaration]:
+        declarations = []
         while self.i < len(self.s) and self.s[self.i] != "}":
             try:
-                prop, val = self.pair()
-                pairs[prop] = val
+                prop, vals, important = self.pair()
+                if prop == "font":
+                    pairs = self._font_shorthand(vals)
+                    
+                    # add all pairs as new declarations
+                    for prop, val in pairs.items():
+                        decl = Declaration(prop, val, important, origin_priority, self.decl_count)
+                        if specificity: decl.set_specificity(specificity)
+                        declarations.append(decl)
+                else:
+                    if len(vals) == 1: val = vals[0]
+                    decl = Declaration(prop, val, important, origin_priority, self.decl_count)
+                    if specificity: decl.set_specificity(specificity)
+                    declarations.append(decl)
+                
+                self.decl_count += 1
                 self.whitespace()
                 self.literal(";")
                 self.whitespace()
-            except Exception:
-                why = self.ignore_until([';', '}'])
+            except Exception as e:
+                why = self.consume_until([';', '}'])
                 if why == ";":
                     self.literal(";")
                     self.whitespace()
                 else:
                     break
-        return pairs
+        return declarations
 
-    def ignore_until(self, chars):
+    def consume_until(self, chars):
         while self.i < len(self.s):
             for char in chars:
                 if self.s.startswith(char, self.i):
@@ -99,68 +251,197 @@ class CSSParser:
             self.i += 1
         return None
     
-    def selector(self):
-        out = TagSelector(self.word().casefold())
+    def selector(self) -> Selector:
+        out = self._one_selector()
         self.whitespace()
-        while self.i < len(self.s) and self.s[self.i] != "{":
-            tag = self.word()
-            descendant = TagSelector(tag.casefold())
+        while self.i < len(self.s) and self.s[self.i] not in ("{", ","):
+            descendant = self._one_selector()
             out = DescendantSelector(out, descendant)
             self.whitespace()
         return out
     
-    def parse(self):
+    def _one_selector(self) -> Selector:
+        selector = self.word().casefold()
+        if "." in selector:
+            if selector.startswith("."):
+                return ClassSelector(selector)
+            else:
+                parts = selector.split(".", 1)
+                return SelectorSequence(
+                    TagSelector(parts[0]),
+                    ClassSelector("." + parts[1])
+                )
+        return TagSelector(selector)
+    
+    def selectors(self) -> list[Selector]:
+        out = []
+        while self.i < len(self.s):
+            selector = self.selector()
+            out.append(selector)
+            self.whitespace()
+        
+            if self.i >= len(self.s) or self.s[self.i] == "{":
+                break
+
+            self.literal(",")
+            self.whitespace()
+        return out
+    
+    def parse(self, origin_priority, s=None) -> list[Rule]: # if passed s argument, reset s and i for new text
+        if s:
+            self.s = s
+            self.i = 0
+            
         rules = []
+        self.whitespace()
         while self.i < len(self.s):
             try:
-                self.whitespace()
-                selector = self.selector()
+                selectors = self.selectors()
                 self.literal("{")
                 self.whitespace()
-                body = self.body()
+                body = self.body(origin_priority)
                 self.literal("}")
-                rules.append((selector, body))
-            except Exception:
-                why = self.ignore_until(['}'])
+                for selector in selectors:
+                    body_copy = [decl.with_specificity(selector.specificity) for decl in body]
+                    rules.append(Rule(selector, body_copy))
+                self.whitespace()
+            except Exception as e:
+                # print(e)
+                why = self.consume_until(['}'])
                 if why == "}":
                     self.literal("}")
                     self.whitespace()
                 else:
                     break
         return rules
-
-def style(node, rules):
-    node.style = {}
     
-    # style sheet rules
-    for selector, body in rules:
-        if not selector.matches(node): continue
-        for prop, value in body.items():
-            node.style[prop] = value
+    def _font_shorthand(self, val):
+        # default values
+        pairs = {
+            'font-style': 'normal', 
+            'font-variant': 'normal', 
+            'font-weight': 'normal',
+            'font-stretch': 'normal',
+            'line-height': '1.5'
+        }
+        # look for font-size (mandatory), ends with size unit
+        size_idx = -1
+        for i in range(len(val)):
+            for unit in SIZE:
+                if val[i].endswith(unit):
+                    pairs['font-size'] = val[i]
+                    size_idx = i
+        # match style, variant, weight, stretch before size_idx
+        for i in range(size_idx):
+            if val[i] in STYLE:         
+                pairs['font-style'] = val[i]
+            elif val[i] in VARIANT:     
+                pairs['font-variant'] = val[i]
+            elif val[i] in WEIGHT:
+                pairs['font-weight'] = val[i]
+            elif val[i].isdigit():
+                pairs['font-weight'] = int(val[i])
+            elif val[i] in STRETCH:
+                pairs['font-stretch'] = val[i]
+        # line-height
+        if size_idx < len(val)-2:
+            pairs['line-height'] = float(val[size_idx+1][1:])
+        pairs['font-family'] = val[-1]
+        return pairs
+
+# To style the entire node tree, we need to do two passes
+# First pass to read all <style> tags and add them to our rules
+# Second to actually compute styles for each node
+def style(node, rules, parser: CSSParser):
+    def parse_styletags(node):
+        if isinstance(node, Text) and node.parent.tag == "style":
+            styletag_rules = parser.parse(origin_priority=2, s=node.text)
+            rules.extend(styletag_rules)
             
-    # style attribute rules
-    if isinstance(node, Element) and "style" in node.attributes:
-        pairs = CSSParser(node.attributes["style"]).body()
-        for property, value in pairs.items():
-            node.style[property] = value
-    
-    for child in node.children:
-        style(child, rules)
+        for child in node.children:
+            parse_styletags(child)
 
+    def _style(node):
+        candidates = []
+        # get sheet rules
+        for rule in rules:
+            selector, declarations = rule.selector, rule.declarations
+            if not selector.matches(node): continue
+            candidates.extend(declarations)
+                
+        # get any style attribute rules
+        if isinstance(node, Element) and "style" in node.attributes:
+            declarations = CSSParser(node.attributes["style"]).body(3, specificity=(0,0,0))
+            candidates.extend(declarations)
+            
+        # add styles to nodes
+        final = {}
+        for decl in candidates:
+            prop = decl.prop
+            if prop not in final or decl.sort_key > final[prop].sort_key:
+                final[prop] = decl
+            
+        # replace decl objects with their values
+        node.style = {prop: decl.val for prop, decl in final.items()}
+
+        # get inheritable properties from parents
+        for prop, default in INHERITED_PROPERTIES.items():
+            if prop in final:
+                continue
+            elif node.parent:
+                node.style[prop] = node.parent.style[prop]
+            else:
+                node.style[prop] = default
+                
+        _compute(node)
+        
+        for child in node.children:
+            _style(child)
+    
+    # parse_styletags(node) 
+    _style(node)   
+
+
+        
+def _compute(node):
+    # resolve 'inherit' and related keywords
+    for prop, value in node.style.items():
+        if value == "inherit":
+            node.style[prop] = node.parent.style[prop]
+        elif value == "initial":
+            # node.style[prop] = INHERITED_PROPERTIES[prop]
+            del node.style[prop]
+        elif value == "unset":
+            if prop in INHERITED_PROPERTIES:
+                node.style[prop] = node.parent.style[prop]
+            else:
+                del node.style[prop]
+                
+    # compute font shorthand (font-size and font-family are required
+    # font: [font-style] [font-variant] [font-weight] [font-stretch] font-size [/ line-height] font-family
+    if "font" in node.style:
+        pass
+                    
+    # compute percentages to px values (to prevent inherited fonts from scaling off of parents again)
+    if node.style["font-size"].endswith("%"):
+        if node.parent:
+            parent_font_size = node.parent.style['font-size']
+        else:
+            parent_font_size = INHERITED_PROPERTIES["font-size"]
+        node_pct = float(node.style["font-size"][:-1]) / 100
+        parent_px = float(parent_font_size[:-2])
+        node.style["font-size"] = str(node_pct * parent_px) + "px"
+        
 def print_sheet(s):
     parser = CSSParser(s)
-    res = parser.parse()
-    for selector, rules in res:
-        print(selector)
-        for prop, value in rules.items():
-            print(f"    {prop}: '{value}'")
+    res = parser.parse(1)
+    for rule in res:
+        print(str(rule))
         print()
         
-def print_rules(r):
-    for selector, rules in r:
-        print(selector)
-        for prop, value in rules.items():
-            print(f"    {prop}: '{value}'")
+def print_rules(rules):
+    for rule in rules:
+        print(str(rule))
         print()
 
 if __name__ == "__main__":

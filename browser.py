@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from layout import DocumentLayout, paint_tree, tree_to_list, MARGINS
 from css_parser import CSSParser, style, print_rules
 import time
-        
-DEFAULT_STYLE_SHEET = CSSParser(open("browser.css").read()).parse()
 
 @dataclass
 class WindowContext:
@@ -14,11 +12,12 @@ class WindowContext:
     height: int
 
 @dataclass
-class scrollstate:
+class ScrollState:
     is_dragging: bool = False
     drag_offset: int = 0
     pos: int = 0
     bar_y: int = 0
+    bar_width: int = MARGINS[4]
     bar_height: int = 0
     velocity: float = 0
     friction: float = 0.7
@@ -51,13 +50,17 @@ class Browser:
         self.window.bind("<B1-Motion>", self.on_mouse_drag)
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
-        self.scroll = scrollstate()
+        self.scroll = ScrollState()
         self.rootnode = []
         self.text_height = 0
         self.rtl = options.get("rtl", False)
         
         self.document = None
         self.display_list = []
+        
+        self.css_parser = CSSParser(open("browser.css").read())
+        self.DEFAULT_STYLE_SHEET = self.css_parser.parse(origin_priority=1)
+        self.rules = []
 
         # keep CLI flags accessible to other methods
         self.options = options
@@ -85,17 +88,17 @@ class Browser:
     def draw_scrollbar(self):
         if self.ctx.height >= self.text_height:
             return
-        self.canvas.create_rectangle(self.ctx.width-10, 0, self.ctx.width, self.ctx.height, width=0, fill="#cccccc")
+        self.canvas.create_rectangle(self.ctx.width-self.scroll.bar_width, 0, self.ctx.width, self.ctx.height, width=0, fill="#cccccc")
         self.scroll.bar_height = self.ctx.height**2 / self.text_height
         self.scroll.bar_y = self.scroll.pos*self.ctx.height / self.text_height
-        self.canvas.create_rectangle(self.ctx.width-10, self.scroll.bar_y, self.ctx.width, self.scroll.bar_y+self.scroll.bar_height, width=0, fill="#aaaaaa")
+        self.canvas.create_rectangle(self.ctx.width-self.scroll.bar_width, self.scroll.bar_y, self.ctx.width, self.scroll.bar_y+self.scroll.bar_height, width=0, fill="#aaaaaa")
     
     def load(self, url: URL):
         body = url.request()
         self.rootnode = HTMLParser(body).parse()
 
         # css rules
-        rules = DEFAULT_STYLE_SHEET.copy()
+        self.rules = self.DEFAULT_STYLE_SHEET.copy()
         tree_as_list = tree_to_list(self.rootnode, [])
         for i, node in enumerate(tree_as_list):
             # external stylesheets
@@ -105,28 +108,35 @@ class Browser:
                 style_url = url.resolve(node.attributes['href'])
                 try:
                     body = style_url.request()
-                    rules.extend(CSSParser(body).parse())
+                    self.rules.extend(self.css_parser.parse(origin_priority=1, s=body))
                 except:
                     print("Could not fetch stylesheet from", body)
 
             # style tag stylesheets
             if i < len(tree_as_list)-1 and isinstance(node, Element) and node.tag == "style":
                 try:
-                    rules.extend(CSSParser(tree_as_list[i+1].text).parse())
+                    self.rules.extend(self.css.parse(origin_priority=1, s=tree_as_list[i+1].text))
                 except:
                     print("inline style", tree_as_list[i+1], "could not be parsed")
-
         start_time = time.perf_counter()
-        style(self.rootnode, rules)
+        style(self.rootnode, self.rules, self.css_parser)
         elapsed_time = time.perf_counter() - start_time
+        
         self.document = DocumentLayout(self.rootnode, self.ctx)
         # conditional debug output controlled by CLI flags:
         if self.options.get("t", False):
             print(print_tree(self.rootnode, source=True))
         if self.options.get("c", False):
-            print_rules(rules)
-            print(f"style() in{elapsed_time: .6f} seconds, {len(rules)} rules")
+            print_rules(self.rules)
+            print(f"style() in{elapsed_time: .6f} seconds, {len(self.rules)} rules")
         print("\nCalculating layout...\n")
+
+        # new_tree = tree_to_list(self.rootnode, [])
+        # for item in new_tree:
+        #     if isinstance(item, Element):
+        #             # if "18px" in repr(item):
+        #         print(item)
+        #             # pass
         self._layout()
         self.update()
     
@@ -173,7 +183,7 @@ class Browser:
     def on_mouse_down(self, e):
         # handle scrollbar drag
         if e.y >= self.scroll.bar_y and e.y <= self.scroll.bar_y + self.scroll.bar_height and \
-                e.x >= self.ctx.width-10 and e.x < self.ctx.width:
+                e.x >= self.ctx.width-self.scroll.bar_width and e.x < self.ctx.width:
             self.scroll.is_dragging = True
             self.scroll.drag_offset = e.y - self.scroll.bar_y
     
@@ -199,16 +209,19 @@ if __name__ == "__main__":
     url = ""
     for arg in sys.argv[1:]:
         if arg in ("-h", "help"):
-            print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] <url>")
+            print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] [<url> | test]")
         elif arg == "-rtl":
             options["rtl"] = True
         elif arg == "-c":
             options["c"] = True
         elif arg == "-t":
             options["t"] = True
+        elif arg == "test":
+            url = "file:///home/yuzu/Documents/browser-dev/parsetest"
         else:
             url = arg
-    url = url or "file:///home/yuzu/Documents/browser-dev/parsetest"
-    print(url)
-    Browser(options).load(URL(url))
+    if url:
+        Browser(options).load(URL(url))
+    else:
+        print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] [<url> | test]")
     tkinter.mainloop()

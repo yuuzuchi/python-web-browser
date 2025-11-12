@@ -17,7 +17,7 @@ NO_RENDER_ELEMENTS = [
     "script", "style", "title", "meta", "link", "base", "template"
 ]
 
-MARGINS = [10, 10, 20, 10] # left, top, right, bottom
+MARGINS = [10, 10, 20, 10, 16] # left, top, right, bottom, scrollbar padding
 
 def paint_tree(layout_object, display_list):
     display_list.extend(layout_object.paint())
@@ -50,7 +50,7 @@ class DocumentLayout:
         
         child = BlockLayout([self.node], self, None, self.width_cache) # <html> node
         self.children.append(child)
-        self.width = self.ctx.width - 2*MARGINS[0]
+        self.width = self.ctx.width - 2*MARGINS[0] - MARGINS[4]
         self.x = MARGINS[0]
         self.y = MARGINS[1]
         child.layout()
@@ -75,14 +75,9 @@ class BlockLayout:
         self._init_state()
     
     def _init_state(self):
-        self.style = "roman"
-        self.weight = "normal"
-        self.size = 12
         self.align = "left" # center or left
         self.supersub = "normal" # superscript, subscript, or normal
         self.pre = False
-        self.SPACE_WIDTH = get_font(size=self.size, style=self.style, weight=self.weight).measure(" ")
-        self.LINESPACE = get_font(size=self.size, style=self.style, weight=self.weight).metrics("linespace")*1.25
         self.current_font = get_font()
         self.display_list = []
         self.line = []
@@ -135,8 +130,8 @@ class BlockLayout:
                 #     self.current_font
                     
         if self.layout_mode() == "inline":
-            for x, y, word, font in self.display_list:
-                cmds.append(DrawText(x, y, word, font))
+            for x, y, word, font, color in self.display_list:
+                cmds.append(DrawText(x, y, word, font, color))
             
         return cmds
         
@@ -146,22 +141,17 @@ class BlockLayout:
            block = layout_intermediate"""
         if len(self.nodes) > 1:
             return "inline"
-        if isinstance(self.nodes[0], Text):
-            return "inline"
-        # if any children that are block element tags:
-        # prevents children like <b> from creating a new block
-        # if block and inline children both exist, default to block
-        elif any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in self.nodes[0].children]):
-            return "block"
-        elif self.nodes[0].children:
-            return "inline"
-        return "block" # self closing tags
+
+        mode = self.nodes[0].style.get("display")
+        if mode in ("block", "none"):
+            return mode
+        return "inline"
     
     def layout(self):
         mode = self.layout_mode()
         extra_height = 0
 
-        # determine position of our block
+        # determine position of our block (width/height auto)
         self.x = self.parent.x
         self.width = self.parent.width
         if len(self.nodes) == 1 and isinstance(self.nodes[0], Element) and \
@@ -171,6 +161,13 @@ class BlockLayout:
 
         # this BlockLayout represents a single Text/Element object
         if len(self.nodes) == 1:
+            width = self.nodes[0].style.get("width", "auto")
+            height = self.nodes[0].style.get("height", "auto")
+            if width.endswith("px"):
+                self.width = int(width[:-2])
+            if height.endswith("px"):
+                self.height = int(height[:-2])
+                
             if mode == "block":
                 self._create_children()
             else:
@@ -194,6 +191,10 @@ class BlockLayout:
         node = self.nodes[0] # method is ONLY called when BlockLayout represents single node object
         anonymous_buffer = [] # text-like elements to combine into single BlockLayout
         previous = None
+        # print()
+        # print(node.tag if isinstance(node, Element) else node.text)
+        # print(node.children)
+        # print()
         for child in node.children:
             if isinstance(child, Element) and child.tag in BLOCK_ELEMENTS:
                 if child.tag in "head":
@@ -218,19 +219,12 @@ class BlockLayout:
             
         # flush remaining buffer at end
         if anonymous_buffer:
+            #print(anonymous_buffer)
             self.children.append(BlockLayout(anonymous_buffer, self, previous, self.width_cache))
     
     def open_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
-        if tag in ("i", "em"):
-            self.style = "italic"
-        elif tag in ("b", "strong"):
-            self.weight = "bold"
-        elif tag == "small":
-            self.size -= 2
-        elif tag == "big":
-            self.size += 4
-        elif tag == "br":
+        if tag == "br":
             self.flush()
             self.cy += self.current_font.cached_metrics['linespace'] * 1.25
         elif tag == 'h1 class="title"':
@@ -239,68 +233,50 @@ class BlockLayout:
             self.supersub = "superscript"
         elif tag == "sub":
             self.supersub = "subscript"
-        elif tag == "pre":
-            self.pre = True
-            self.flush()
         
     def close_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
-        if tag in ("i", "em"):
-            self.style = "roman"
-        elif tag in ("b", "strong"):
-            self.weight = "normal"
-        elif tag == "small":
-            self.size += 2
-        elif tag == "big":
-            self.size -= 4
-        elif tag == "p":
-            self.flush()
-            self.cy += self.current_font.cached_metrics['linespace'] * 1.25
-        elif tag == "h1":
+        if tag == "h1":
             self.flush()
             self.cy += self.current_font.cached_metrics['linespace'] * 1.25
             self.align = "left"
         elif tag in ("sup", "sub"):
             self.supersub = "normal"
-        elif tag == "pre":
-            self.pre = False
-            self.flush()
         
-    def recurse(self, tree):
-        if isinstance(tree, Text):
-            # halve font size if super/subscript
-            size = self.size/2 if self.supersub.startswith("s") else self.size
+    def recurse(self, node):
+        if isinstance(node, Text):
+            family = node.style["font-family"]
+            weight = node.style["font-weight"]
+            style = node.style["font-style"]
+            pre = node.style["white-space"] == "pre"
+            if style == "normal": style = "roman"
+            size = int(float(node.style["font-size"][:-2]) * .75)
+            if self.supersub.startswith("s"): # super/subscript
+                size /= 2 
 
-            if self.pre:
-                # within a tag, the font will stay the same
-                self.current_font = get_font(family="Courier New", size=size, style=self.style, weight=self.weight)
-                newline = "\n" in tree.text
-                for line in tree.text.split("\n"):
-                    self.word(line, wrap=False)
-                    if newline: 
+            # within a tag, the font will stay the same
+            self.current_font = get_font(family=family, size=size, style=style, weight=weight)
+            if pre:
+                parts = node.text.split("\n")
+                for i, line in enumerate(parts):
+                    self.word(node, line, wrap=False)
+                    # flush once for each newline in the original text
+                    if i < len(parts) - 1:
                         self.flush()
             else:
-                # no pre block, process word by word
-                self.current_font = get_font(size=size, style=self.style, weight=self.weight)
-                for word in tree.text.split():
-                    self.word(word)
-        elif tree.tag not in NO_RENDER_ELEMENTS:
-            self.open_tag(tree)
-            for child in tree.children:
+                for word in node.text.split():
+                    self.word(node, word)
+        elif node.tag not in NO_RENDER_ELEMENTS:
+            self.open_tag(node)
+            for child in node.children:
                     self.recurse(child)
-            self.close_tag(tree)                
+            self.close_tag(node)                
 
-    def word(self, word, wrap=True):
+    def word(self, node, word, wrap=True):
+        color = node.style["color"]
         # get width of word for given style and weight
-        font_id = self.current_font.id
-        
         word_nohyphen = word.replace("\u00AD", "")
-        
-        if word_nohyphen in self.width_cache[font_id]:
-            w = self.width_cache[font_id][word_nohyphen]
-        else:
-            w = self.current_font.measure(word_nohyphen)
-            self.width_cache[font_id][word_nohyphen] = w
+        w = self._get_width(word_nohyphen)
             
         if wrap and self.cx + w > self.width:
             # word cannot be hyphenated, line break now
@@ -314,25 +290,27 @@ class BlockLayout:
                 
                 if idx != -1: 
                     lefthalf = ''.join(parts[:idx+1]) + '-'
-                    self.line.append((self.cx, lefthalf, self.current_font, self.supersub))
+                    self.line.append((self.cx, lefthalf, self.current_font, self.supersub, color))
                     
                 self.flush()
                 self.word(righthalf)
                 return
         
-        self.line.append((self.cx, word_nohyphen, self.current_font, self.supersub))
-        self.cx += w + self.SPACE_WIDTH
+        self.line.append((self.cx, word_nohyphen, self.current_font, self.supersub, color))
+        self.cx += w
+        if not node.style['white-space'] == "pre":
+            self.cx += self._get_width(" ")
         
     def flush(self):
         if not self.line: return
         #line_length = self.cx - self.SPACE_WIDTH - MARGINS[0]
-        metrics = [font.cached_metrics for _, _, font, _ in self.line]
+        metrics = [font.cached_metrics for _, _, font, _, _ in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         max_descent = max(metric["descent"] for metric in metrics)
         baseline = self.cy + 1.25*max_ascent
         
         # position words so they sit right above the baseline (by their ascent height)
-        for rel_x, word, font, supersub in self.line:
+        for rel_x, word, font, supersub, color in self.line:
             x = self.x + rel_x
             # if self.align == "center":
             #     x += (self.ctx.width/2)-(line_length/2)
@@ -341,7 +319,7 @@ class BlockLayout:
                 y = self.y + baseline - (2 * font.cached_metrics["ascent"])
             else:
                 y = self.y + baseline - font.cached_metrics["ascent"]
-            self.display_list.append((x, y, word, font))
+            self.display_list.append((x, y, word, font, color))
 
         # move cursor below deepest descent
         self.cy = baseline + 1.25*max_descent
@@ -349,6 +327,15 @@ class BlockLayout:
         # reset to left
         self.cx = 0
         self.line = []
+
+    def _get_width(self, word):
+        font_id = self.current_font.id
+        if word in self.width_cache[font_id]:
+            return self.width_cache[font_id][word]
+        else:
+            w = self.current_font.measure(word)
+            self.width_cache[font_id][word] = w
+            return w
 
     def _findsplit(self, parts):
         # binary search for latest possible place to hyphenate word

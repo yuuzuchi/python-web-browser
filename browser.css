@@ -1,4 +1,41 @@
-/* Default browser styles */
+html {
+  white-space: normal;
+}
+
+html, body, article, section, nav, aside, h1, h2, h3, h4, h5, h6, 
+hgroup, header, footer, address, p, hr, pre, blockquote, 
+ol, ul, menu, li, dl, dt, dd, figure, figcaption, main, 
+div, table, form, fieldset, legend, details, summary {
+  display: block;
+}
+
 pre {
-  background-color: g/*asdlkfasdf*/ray;
+  font-family: "Courier New";
+  background-color: "#dcddde";
+  white-space: pre;
+}
+
+a {
+  color: blue;
+}
+
+i, em {
+  font-style: italic;
+}
+
+b, strong {
+  font-weight: bold;
+}
+
+small {
+  font-size: 90%;
+}
+
+big {
+  font-size: 110%;
+}
+
+code .mk {
+  font-family: "Courier New";
+  color: '#606';
 }

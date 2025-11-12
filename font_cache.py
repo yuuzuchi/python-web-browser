@@ -6,7 +6,7 @@ _font_cache = {}
 def hash16(s: str) -> int:
     return binascii.crc_hqx(s.encode(), 0)
         
-def get_font(family="Segoe UI", size=16, style="roman", weight="normal"):
+def get_font(family="Crimson Pro", size=16, style="roman", weight="normal"):
     key_int = (
         (min(int(size), 255) & 0xFF) |
         (weight=="bold") << 8 |

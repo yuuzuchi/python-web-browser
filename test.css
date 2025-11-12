@@ -1,0 +1,23 @@
+a, b {
+    font-size: 30px !important;
+}
+
+.c {
+    display: block;
+}
+
+.d .b {
+    font: normal normal 700 normal 20px / 1.5 "moo" !important;
+}
+
+.x.z {
+    color: black;
+}
+
+h1 {
+    color: black;
+}
+
+div.d1.pogdiv div.d2 p {
+    color:aquamarine;
+}

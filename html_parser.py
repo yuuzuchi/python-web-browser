@@ -17,19 +17,23 @@ class Text:
         self.text = text
         self.children = []
         self.parent = parent
+        self.style = {}
+        self.classes = set()
         
     def __repr__(self):
-        return repr(self.text)
+        return f"{self.text}, style={self.style}"
     
 class Element:
-    def __init__(self, tag, attributes, parent):
+    def __init__(self, tag, attributes, parent, classes):
         self.tag = tag
         self.attributes = attributes
         self.children = []
         self.parent = parent
+        self.style = {}
+        self.classes = classes
         
     def __repr__(self):
-        return f"<{self.tag}{str(self.attributes) if self.attributes else ""}>"
+        return f"<{self.tag}>{str(self.attributes) if self.attributes else ""}, style={self.style}, class={self.classes}"
             
 class HTMLParser:
     def __init__(self, body):
@@ -123,8 +127,12 @@ class HTMLParser:
         
         return self.finish()
     
+    def is_in_pre(self):
+        return any(isinstance(node, Element) and node.tag == "pre"
+                for node in self.unfinished)
+    
     def add_text(self, text):
-        if text.isspace(): return
+        if text.isspace() and not self.is_in_pre(): return
         self.implicit_tags(None)
         # add text to last unfinished node
         parent = self.unfinished[-1]
@@ -132,7 +140,7 @@ class HTMLParser:
         parent.children.append(node)
     
     def add_tag(self, tag):
-        tag, attributes = self.get_attributes(tag)
+        tag, attributes, classes = self.get_attributes(tag)
         if tag.startswith("!"): return
         self.implicit_tags(tag)
         if tag.startswith("/"):
@@ -152,12 +160,12 @@ class HTMLParser:
         elif tag in SELF_CLOSING_TAGS:
             # add an already finished tag
             parent = self.unfinished[-1]
-            node = Element(tag, attributes, parent)
+            node = Element(tag, attributes, parent, classes)
             parent.children.append(node)
         else:
             # add unfinished node to prev unfinished node
             parent = self.unfinished[-1] if self.unfinished else None
-            node = Element(tag, attributes, parent)
+            node = Element(tag, attributes, parent, classes)
             self.unfinished.append(node)
             # don't add to parent's children[] here, we only do that once it's closed
     
@@ -171,10 +179,11 @@ class HTMLParser:
             parent.children.append(node)
         return self.unfinished.pop()
 
-    def get_attributes(self, text):
+    def get_attributes(self, text) -> tuple[str, dict, set]: 
+        # returns (tag, attributes, classes)
         parts = text.split(None, 1)
         if len(parts) == 1:
-            return parts[0], {}
+            return parts[0], {}, set()
 
         tag, rest = parts[0].casefold(), parts[1]
         attributes = {}
@@ -219,8 +228,15 @@ class HTMLParser:
                 attr_val = ""
 
             attributes[attr_name.casefold()] = attr_val
+            
+        # get classes
+        classes = attributes.get("class")
+        if classes:
+            classes = set(c.casefold() for c in classes.split(" "))
+        else:
+            classes = set()
         
-        return tag, attributes
+        return tag, attributes, classes
         
     def implicit_tags(self, tag):
         while True:
@@ -280,7 +296,7 @@ class HTMLParser:
 def print_tree(node, source=False, indent=0): # source mode: print tag attributes and closing tags
     spacing = "    " * indent
     if isinstance(node, Text):
-        return node.text
+        return f"'{node.text}'"
     
     if len(node.children) == 1 and isinstance(node.children[0], Text) and "\n" not in node.children[0].text:
         return f"{spacing}<{node.tag}>{node.children[0].text}</{node.tag}>"
@@ -289,9 +305,9 @@ def print_tree(node, source=False, indent=0): # source mode: print tag attribute
     inner = []
     for child in node.children:
         if isinstance(child, Text) and node.tag != "pre":
-            text = child.text.strip()
+            text = child.text
             if text:
-                inner.append(f"{'    '*(indent+1)}{text}")
+                inner.append(f"{'    '*(indent+1)}'{text}'")
         else:
             inner.append(print_tree(child, source, indent+1))
     close = f"{spacing}</{node.tag}>"
