@@ -112,12 +112,6 @@ class Browser:
                 except:
                     print("Could not fetch stylesheet from", body)
 
-            # style tag stylesheets
-            if i < len(tree_as_list)-1 and isinstance(node, Element) and node.tag == "style":
-                try:
-                    self.rules.extend(self.css.parse(origin_priority=1, s=tree_as_list[i+1].text))
-                except:
-                    print("inline style", tree_as_list[i+1], "could not be parsed")
         start_time = time.perf_counter()
         style(self.rootnode, self.rules, self.css_parser)
         elapsed_time = time.perf_counter() - start_time

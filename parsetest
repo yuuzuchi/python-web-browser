@@ -1,17 +1,29 @@
 <!doctype html>
 <html>
-    <head>
-        <link rel="stylesheet" href="test.css">
-    </head>
-    <body>
-        <h1 class="meow">heading</h1>
-        <div class="d1 pogdiv">
-            <div class="d2">
-                <p class = "p1">
-                    hello
-                </p>
-            </div>
-        </div>
 
-    </body>
+<head>
+    <link rel="stylesheet" href="test.css">
+    <style>
+        div.d1.pogdiv div.d2 p {
+            color: green !important;
+        }
+    </style>
+    <style>
+        div.d1.pogdiv div.d2 p {
+            color: blue;
+        }
+    </style>
+</head>
+
+<body>
+    <h1 class="meow">heading</h1>
+    <div class="d1 pogdiv">
+        <div class="d2">
+            <p class="p1">
+                hello
+            </p>
+        </div>
+    </div>
+</body>
+
 </html>

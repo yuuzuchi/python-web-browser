@@ -154,9 +154,9 @@ class BlockLayout:
         # determine position of our block (width/height auto)
         self.x = self.parent.x
         self.width = self.parent.width
-        if len(self.nodes) == 1 and isinstance(self.nodes[0], Element) and \
-                self.nodes[0].tag == "nav" and self.nodes[0].attributes.get("id") == "toc":
-            extra_height = 20
+        # if len(self.nodes) == 1 and isinstance(self.nodes[0], Element) and \
+        #         self.nodes[0].tag == "nav" and self.nodes[0].attributes.get("id") == "toc":
+        #     extra_height = 20
         self.y = (self.previous.y + self.previous.height if self.previous else self.parent.y) + extra_height
 
         # this BlockLayout represents a single Text/Element object
@@ -191,10 +191,6 @@ class BlockLayout:
         node = self.nodes[0] # method is ONLY called when BlockLayout represents single node object
         anonymous_buffer = [] # text-like elements to combine into single BlockLayout
         previous = None
-        # print()
-        # print(node.tag if isinstance(node, Element) else node.text)
-        # print(node.children)
-        # print()
         for child in node.children:
             if isinstance(child, Element) and child.tag in BLOCK_ELEMENTS:
                 if child.tag in "head":
@@ -208,7 +204,6 @@ class BlockLayout:
                     previous = nxt
                     
                 # then add current block element
-                # here is where we would handle <li> indenting by appending an InlineLayout with a bullet point
                 nxt = BlockLayout([child], self, previous, self.width_cache)
                 self.children.append(nxt)
                 previous = nxt
@@ -219,7 +214,6 @@ class BlockLayout:
             
         # flush remaining buffer at end
         if anonymous_buffer:
-            #print(anonymous_buffer)
             self.children.append(BlockLayout(anonymous_buffer, self, previous, self.width_cache))
     
     def open_tag(self, tag):

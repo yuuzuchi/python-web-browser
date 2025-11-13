@@ -1,8 +1,6 @@
 from html_parser import Element, Text
 from dataclasses import dataclass, field
 
-IMPORTANCE_PRIORITY = 10_000
-
 INHERITED_PROPERTIES = {
     "font-size": "16px",
     "font-style": "normal",
@@ -69,30 +67,25 @@ class SelectorSequence(Selector):
         return self.tag.matches(node) and self.clss.matches(node)
 
 class DescendantSelector(Selector):
-    def __init__(self, ancestor: Selector, descendant: Selector):
-        combined = tuple(a + b for a, b in zip(ancestor.specificity, descendant.specificity))
-        super().__init__(combined)
-        self.ancestor = ancestor
-        self.descendant = descendant
+    def __init__(self, selector: Selector):
+        super().__init__(selector.specificity)
+        self.selector_list = [selector]
         
     def __str__(self):
-        # collect tags from the chain into a stack (right-to-left)
-        parts = []
-        cur = self
-        while isinstance(cur, DescendantSelector):
-            parts.append(str(cur.descendant))
-            cur = cur.ancestor
-        # cur is now a Tag/Class Selector; include its tag/class
-        parts.append(str(cur))
-        parts.reverse()
-        return " ".join(parts)
+        return " ".join([str(selector) for selector in self.selector_list])
     
+    def add_right(self, selector: Selector):
+        self.selector_list.append(selector)
+        self.specificity = tuple(a + b for a, b in zip(self.specificity, selector.specificity))
+
     def matches(self, node: Element | Text):
-        if not self.descendant.matches(node): return False
-        while node.parent:
-            if self.ancestor.matches(node.parent): return True
-            node = node.parent
-        return False
+        def _matches(node: Element | Text, idx):
+            while idx >= 0 and node:
+                if self.selector_list[idx].matches(node):
+                    idx -= 1
+                node = node.parent
+            return idx < 0
+        return _matches(node, len(self.selector_list)-1)
     
 @dataclass
 class Declaration:
@@ -122,10 +115,6 @@ class Rule:
 
     def __str__(self):
         return f"{str(self.selector)}\n{"\n".join("  " + str(decl) for decl in self.declarations)}"
-
-# def cascade_priority(r: Rule):
-#     selector, body = r.selector, r.rule
-#     return selector.priority
 
 class CSSParser:
     def __init__(self, s):
@@ -253,10 +242,14 @@ class CSSParser:
     
     def selector(self) -> Selector:
         out = self._one_selector()
+        first = True
         self.whitespace()
         while self.i < len(self.s) and self.s[self.i] not in ("{", ","):
+            if first:
+                first = False
+                out = DescendantSelector(out)
             descendant = self._one_selector()
-            out = DescendantSelector(out, descendant)
+            out.add_right(descendant)
             self.whitespace()
         return out
     
@@ -306,7 +299,6 @@ class CSSParser:
                     rules.append(Rule(selector, body_copy))
                 self.whitespace()
             except Exception as e:
-                # print(e)
                 why = self.consume_until(['}'])
                 if why == "}":
                     self.literal("}")
@@ -352,6 +344,7 @@ class CSSParser:
 # To style the entire node tree, we need to do two passes
 # First pass to read all <style> tags and add them to our rules
 # Second to actually compute styles for each node
+# Time complexity: 
 def style(node, rules, parser: CSSParser):
     def parse_styletags(node):
         if isinstance(node, Text) and node.parent.tag == "style":
@@ -398,7 +391,7 @@ def style(node, rules, parser: CSSParser):
         for child in node.children:
             _style(child)
     
-    # parse_styletags(node) 
+    parse_styletags(node) 
     _style(node)   
 
 

@@ -13,8 +13,10 @@ a, b {
 .x.z {
     color: black;
 }
-
-h1 {
+.meow { /* this should take precedence if tied with h1, since higher specificity */
+    color: gray;
+}
+h1 { 
     color: black;
 }
 
