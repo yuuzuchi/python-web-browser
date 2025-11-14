@@ -1,5 +1,5 @@
-a, b {
-    font-size: 30px !important;
+div :has(div) {
+    color:green !important;
 }
 
 .c {
@@ -10,12 +10,14 @@ a, b {
     font: normal normal 700 normal 20px / 1.5 "moo" !important;
 }
 
+
 .x.z {
     color: black;
 }
 .meow { /* this should take precedence if tied with h1, since higher specificity */
     color: gray;
 }
+
 h1 { 
     color: black;
 }

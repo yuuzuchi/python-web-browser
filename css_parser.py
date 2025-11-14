@@ -87,6 +87,42 @@ class DescendantSelector(Selector):
             return idx < 0
         return _matches(node, len(self.selector_list)-1)
     
+class HasSelector(Selector):
+    def __init__(self, target: Selector | None, selector_list: list[Selector]): 
+        parens_specificity = max(selector.specificity for selector in selector_list) if selector_list else (0, 0, 0)
+        target_specificity = target.specificity if target else (0, 0, 0)
+        combined = tuple(a + b for a, b in zip(parens_specificity, target_specificity))
+        super().__init__(combined) # take max specificity within 
+        self.target = target
+        self.selector_list = selector_list
+    
+    def __str__(self):
+        return f"{str(self.target) if self.target else ""}:has({", ".join([str(selector) for selector in self.selector_list])})"
+    
+    def set_selectors(self, selector_list: list[Selector]):
+        self.selector_list = selector_list
+        parens_specificity = max(selector.specificity for selector in selector_list) if selector_list else (0, 0, 0)
+        target_specificity = self.target.specificity if self.target else (0, 0, 0)
+        self.specificity = tuple(a + b for a, b in zip(parens_specificity, target_specificity))
+
+    # a proper implementation would walk right to left and call a restyle on matched parents
+    # but I'll skip this optimization for small static sites
+    def matches(self, node): 
+        print(self.target)
+        if self.target and not self.target.matches(node):
+            return False
+        return self._match_child(node)
+
+    def _match_child(self, node):
+        # check if any [selectors] are in node's children
+        if node and isinstance(node, Element):
+            for child in node.children:
+                for selector in self.selector_list:
+                    if selector.matches(child): return True
+                if self._match_child(child): return True
+        return False
+        
+
 @dataclass
 class Declaration:
     prop: str
@@ -125,24 +161,36 @@ class CSSParser:
     def whitespace(self):
         while self.i < len(self.s) and self.s[self.i].isspace():
             self.i += 1
+        self.comment()
+    
+    def comment(self):
+        if self.i < len(self.s) and self.s.startswith("/*", self.i):
+            self.consume_until(["*/"])
+            self.i += 2
+            self.whitespace()
             
-    def word(self):
+    def word(self, is_selectors=False):
         res = []
         start = self.i
         while self.i < len(self.s):
-            if self.s[self.i].isalnum() or self.s[self.i] in "!@#-.%":
-                res.append(self.s[self.i])
-                self.i += 1
-            elif self.s.startswith("/*", self.i): # ignore comments
-                self.consume_until(["*/"])
-                self.i += 2
-                self.whitespace()
-            elif self.s[self.i] == "/" and self.i == start:
-                res.append(self.s[self.i])
-                self.i += 1
-                self.whitespace()
+            if is_selectors:
+                # all for :has() tag - split :has and () into two different word() calls
+                if self.s[self.i].isalnum() or self.s[self.i] in "@#.:":
+                    res.append(self.s[self.i])
+                    self.i += 1
+                else:
+                    break
             else:
-                break
+                if self.s[self.i].isalnum() or self.s[self.i] in "!@#-.%":
+                    res.append(self.s[self.i])
+                    self.i += 1
+                elif self.s[self.i] == "/" and self.i == start:
+                    res.append(self.s[self.i])
+                    self.i += 1
+                    self.whitespace()
+                else:
+                    break
+
         if not self.i > start:
             raise Exception("Parsing error: no words parsed")
         return ''.join(res)
@@ -159,6 +207,7 @@ class CSSParser:
         self.i += 1
         res = []
         while self.i < len(self.s):
+            self.comment()
             c = self.s[self.i]
             if c == '\\':
                 self.i += 1
@@ -224,6 +273,7 @@ class CSSParser:
                 self.literal(";")
                 self.whitespace()
             except Exception as e:
+                print("body", e)
                 why = self.consume_until([';', '}'])
                 if why == ";":
                     self.literal(";")
@@ -240,31 +290,62 @@ class CSSParser:
             self.i += 1
         return None
     
+    def parens(self) -> list[Selector]:
+        res = []
+        if self.i < len(self.s) and self.s[self.i] == "(":
+            self.i += 1
+            self.whitespace()
+            while self.i < len(self.s) and self.s[self.i] != ")":
+                res.append(self.selector())
+                if self.s[self.i] == ",":
+                    self.literal(",")
+                else:
+                    break
+                self.whitespace()
+        self.literal(")")
+        self.whitespace()
+        return res
+    
     def selector(self) -> Selector:
         out = self._one_selector()
+        if isinstance(out, HasSelector):
+            out.set_selectors(self.parens())
+
         first = True
         self.whitespace()
-        while self.i < len(self.s) and self.s[self.i] not in ("{", ","):
+        while self.i < len(self.s) and self.s[self.i] not in "{,)":            
+            nxt = self._one_selector()
+            if isinstance(nxt, HasSelector):
+                nxt.set_selectors(self.parens())
+
             if first:
                 first = False
                 out = DescendantSelector(out)
-            descendant = self._one_selector()
-            out.add_right(descendant)
+            out.add_right(nxt)
             self.whitespace()
         return out
     
-    def _one_selector(self) -> Selector:
-        selector = self.word().casefold()
-        if "." in selector:
-            if selector.startswith("."):
-                return ClassSelector(selector)
-            else:
-                parts = selector.split(".", 1)
-                return SelectorSequence(
-                    TagSelector(parts[0]),
-                    ClassSelector("." + parts[1])
-                )
-        return TagSelector(selector)
+    def _one_selector(self) -> Selector | None:
+        def get_selector(text):
+            if "." in text:
+                if text.startswith("."):
+                    return ClassSelector(text)
+                else:
+                    parts = text.split(".", 1)
+                    return SelectorSequence(
+                        TagSelector(parts[0]),
+                        ClassSelector("." + parts[1])
+                    )
+            return TagSelector(text)
+
+        selector = self.word(is_selectors=True).casefold()
+        if ":" in selector:
+            parts = selector.split(":")
+            if parts[0] != "":
+                return HasSelector(get_selector(parts[0]), [])
+            return HasSelector(None, [])
+        else:
+            return get_selector(selector)
     
     def selectors(self) -> list[Selector]:
         out = []
@@ -299,6 +380,7 @@ class CSSParser:
                     rules.append(Rule(selector, body_copy))
                 self.whitespace()
             except Exception as e:
+                print("parse", e)
                 why = self.consume_until(['}'])
                 if why == "}":
                     self.literal("}")
@@ -366,6 +448,9 @@ def style(node, rules, parser: CSSParser):
         if isinstance(node, Element) and "style" in node.attributes:
             declarations = CSSParser(node.attributes["style"]).body(3, specificity=(0,0,0))
             candidates.extend(declarations)
+            
+        if isinstance(node, Element) and node.tag == "h1":
+            print(candidates)
             
         # add styles to nodes
         final = {}
