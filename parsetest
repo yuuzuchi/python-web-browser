@@ -6,52 +6,13 @@
 </head>
 
 <body>
-    <h2>div :has(div) test</h2>
-
-    <!-- This div contains another div, so it SHOULD match -->
-    <div id="outer-1">
-        <p>Outer div #1 (should get a red border)</p>
-        <div id="inner-1">
-            Inner div #1
-        </div>
+    <div>
+        anonymous black box
+        <b>test,<i> evreything should be on the </b>same line</i>
+        <p>
+            but this should be newline
+        </p>
     </div>
-
-    <!-- This div does NOT contain a div, so it should NOT match -->
-    <div id="outer-2">
-        <p>Outer div #2 (should NOT get a red border)</p>
-    </div>
-
-    <!-- This div also contains a nested div, so it SHOULD match -->
-    <div id="outer-3">
-        <p>Outer div #3 (should get a red border)</p>
-        <section>
-            <div id="inner-3">Nested inside a section</div>
-        </section>
-    </div>
-    <!--
-    
-    <h2>div :has(div) test</h2>
-    
-    <div id="ancestor">
-        <p>No outline expected here.</p>
-        
-        <section id="section-match">
-            <p>Section should get BLUE outline</p>
-            <div id="inner-1">Inner div inside section</div>
-        </section>
-        
-        <section id="section-no-match">
-            <p>No outline expected here.</p>
-        </section>
-    </div>
-    
-    <main id="outside">
-        <section id="section-outside">
-            <p>No outline expected (ancestor is not a div).</p>
-            <div>Inner div here, but ancestor isn't a div → no match</div>
-        </section>
-    </main>
--->
 </body>
 
 </html>

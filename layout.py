@@ -31,6 +31,15 @@ def tree_to_list(tree, l: list):
         tree_to_list(child, l)
     return l
 
+def get_width(word, font, width_cache):
+    font_id = font.id
+    if word in width_cache[font_id]:
+        return width_cache[font_id][word]
+    else:
+        w = font.measure(word)
+        width_cache[font_id][word] = w
+        return w
+
 class DocumentLayout:
     def __init__(self, node, ctx):
         self.node = node
@@ -79,9 +88,7 @@ class BlockLayout:
         self.supersub = "normal" # superscript, subscript, or normal
         self.pre = False
         self.current_font = get_font()
-        self.display_list = []
-        self.line = []
-        self.cx, self.cy = 0, 0
+        self.cx = 0
         
     def __repr__(self):
         nodes = ""
@@ -129,10 +136,6 @@ class BlockLayout:
                 # elif node.tag == "li" and isinstance(node.parent, Element) and node.parent.tag == "ul":
                 #     self.current_font
                     
-        if self.layout_mode() == "inline":
-            for x, y, word, font, color in self.display_list:
-                cmds.append(DrawText(x, y, word, font, color))
-            
         return cmds
         
     def layout_mode(self) -> bool: 
@@ -149,15 +152,14 @@ class BlockLayout:
     
     def layout(self):
         mode = self.layout_mode()
-        extra_height = 0
 
         # determine position of our block (width/height auto)
         self.x = self.parent.x
         self.width = self.parent.width
+        self.y = self.previous.y + self.previous.height if self.previous else self.parent.y
         # if len(self.nodes) == 1 and isinstance(self.nodes[0], Element) and \
         #         self.nodes[0].tag == "nav" and self.nodes[0].attributes.get("id") == "toc":
         #     extra_height = 20
-        self.y = (self.previous.y + self.previous.height if self.previous else self.parent.y) + extra_height
 
         # this BlockLayout represents a single Text/Element object
         if len(self.nodes) == 1:
@@ -171,21 +173,19 @@ class BlockLayout:
             if mode == "block":
                 self._create_children()
             else:
-                self._init_state()
+                self.new_line()
                 self.recurse(self.nodes[0])
-                self.flush()
 
-        # Represents multiple objects, must be text-like. Recurse over each, then flush
+        # Represents multiple objects, must be text-like. Put them on the same line.
         else:
-            self._init_state()
+            self.new_line()
             for node in self.nodes:
                 self.recurse(node)
-            self.flush()
         
         for child in self.children:
             child.layout()
 
-        self.height = (sum([child.height for child in self.children]) if mode == "block" else self.cy) + extra_height
+        self.height = sum([child.height for child in self.children])
     
     def _create_children(self):
         node = self.nodes[0] # method is ONLY called when BlockLayout represents single node object
@@ -256,7 +256,7 @@ class BlockLayout:
                     self.word(node, line, wrap=False)
                     # flush once for each newline in the original text
                     if i < len(parts) - 1:
-                        self.flush()
+                        self.new_line()
             else:
                 for word in node.text.split():
                     self.word(node, word)
@@ -267,15 +267,17 @@ class BlockLayout:
             self.close_tag(node)                
 
     def word(self, node, word, wrap=True):
-        color = node.style["color"]
+        line = self.children[-1]
+        previous_word = line.children[-1] if line.children else None
+        
         # get width of word for given style and weight
         word_nohyphen = word.replace("\u00AD", "")
-        w = self._get_width(word_nohyphen)
+        w = get_width(word_nohyphen, self.current_font, self.width_cache)
             
         if wrap and self.cx + w > self.width:
             # word cannot be hyphenated, line break now
             if '\u00AD' not in word:
-                self.flush()
+                self.new_line()
             else:
                 # can be hyphenated, break word as late as possible then recurse on the remaining portion
                 parts = word.split('\u00AD')
@@ -284,52 +286,26 @@ class BlockLayout:
                 
                 if idx != -1: 
                     lefthalf = ''.join(parts[:idx+1]) + '-'
-                    self.line.append((self.cx, lefthalf, self.current_font, self.supersub, color))
                     
-                self.flush()
+                text = TextLayout(node, lefthalf, line, previous_word, self.width_cache)
+                line.children.append(text)
+                previous_word = text
+                    
+                self.new_line()
                 self.word(righthalf)
                 return
         
-        self.line.append((self.cx, word_nohyphen, self.current_font, self.supersub, color))
         self.cx += w
-        if not node.style['white-space'] == "pre":
-            self.cx += self._get_width(" ")
-        
-    def flush(self):
-        if not self.line: return
-        #line_length = self.cx - self.SPACE_WIDTH - MARGINS[0]
-        metrics = [font.cached_metrics for _, _, font, _, _ in self.line]
-        max_ascent = max(metric["ascent"] for metric in metrics)
-        max_descent = max(metric["descent"] for metric in metrics)
-        baseline = self.cy + 1.25*max_ascent
-        
-        # position words so they sit right above the baseline (by their ascent height)
-        for rel_x, word, font, supersub, color in self.line:
-            x = self.x + rel_x
-            # if self.align == "center":
-            #     x += (self.ctx.width/2)-(line_length/2)
-            if supersub == "superscript":
-                # raise superscript text by moving it up by half the font's ascent
-                y = self.y + baseline - (2 * font.cached_metrics["ascent"])
-            else:
-                y = self.y + baseline - font.cached_metrics["ascent"]
-            self.display_list.append((x, y, word, font, color))
-
-        # move cursor below deepest descent
-        self.cy = baseline + 1.25*max_descent
-
-        # reset to left
+            
+        text = TextLayout(node, word_nohyphen, line, previous_word, self.width_cache)
+        line.children.append(text)
+            
+    def new_line(self):
         self.cx = 0
-        self.line = []
-
-    def _get_width(self, word):
-        font_id = self.current_font.id
-        if word in self.width_cache[font_id]:
-            return self.width_cache[font_id][word]
-        else:
-            w = self.current_font.measure(word)
-            self.width_cache[font_id][word] = w
-            return w
+        last_line = self.children[-1] if self.children else None
+        if last_line and not last_line.children: return # there's already a blank line waiting to be written to, don't create another
+        new_line = LineLayout(self.nodes, self, last_line, self.width_cache)
+        self.children.append(new_line)
 
     def _findsplit(self, parts):
         # binary search for latest possible place to hyphenate word
@@ -338,7 +314,7 @@ class BlockLayout:
         while l <= r:
             mid = (l + r) // 2
             leftword = ''.join(parts[:mid+1]) + "-"
-            w = self.current_font.measure(leftword)
+            w = get_width(leftword, self.current_font, self.width_cache)
 
             if self.cx + w <= self.width:
                 ans = mid
@@ -346,3 +322,77 @@ class BlockLayout:
             else:
                 r = mid - 1
         return ans
+
+class LineLayout:
+    def __init__(self, nodes, parent, previous, width_cache):
+        self.nodes = nodes
+        self.parent = parent
+        self.previous = previous
+        self.children = []
+        self.width_cache = width_cache
+    
+    def layout(self):
+        self.width = self.parent.width
+        self.x = self.parent.x
+        
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+            
+        # TODO: prevent BlockLayout from creating blank LineLayouts in the first place
+        if not self.children:
+            self.height = 0
+            return
+
+        for word in self.children:
+            word.layout()
+            
+        max_ascent = max([word.font.cached_metrics["ascent"] for word in self.children])
+        max_descent = max([word.font.cached_metrics["descent"] for word in self.children])
+        baseline = self.y + 1.25 * max_ascent
+        for word in self.children:
+            word.y = baseline - word.font.cached_metrics["ascent"]
+
+        self.height = 1.25 * (max_ascent + max_descent)
+        
+    def paint(self):
+        return []
+
+class TextLayout:
+    def __init__(self, node, word, parent, previous, width_cache):
+        self.node = node
+        self.word = word
+        self.parent = parent
+        self.previous = previous
+        self.children = []
+        self.width_cache = width_cache
+        
+    def layout(self):
+        family = self.node.style["font-family"]
+        weight = self.node.style["font-weight"]
+        style = self.node.style["font-style"]
+        whitespace = self.node.style["white-space"]
+        if style == "normal": style = "roman"
+        size = int(float(self.node.style["font-size"][:-2]) * .75)
+        self.font = get_font(family=family, size=size, weight=weight, style=style)
+
+        self.width = get_width(self.word, self.font, self.width_cache)
+
+        if self.previous:
+            space = get_width(" ", self.font, self.width_cache)
+            self.x = self.previous.x + self.previous.width
+            if whitespace != "pre": # pre blocks provide own whitespace
+                self.x += space
+        else:
+            self.x = self.parent.x
+        
+        self.height = self.font.cached_metrics["linespace"]
+
+    def paint(self):
+        color = self.node.style["color"]
+        return [DrawText(self.x, self.y, self.word, self.font, color)]
+        
+    
+        
+    

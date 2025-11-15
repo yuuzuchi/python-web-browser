@@ -1,6 +1,8 @@
 from html_parser import Element, Text
 from dataclasses import dataclass, field
 
+DEBUG = False
+
 INHERITED_PROPERTIES = {
     "font-size": "16px",
     "font-style": "normal",
@@ -108,7 +110,6 @@ class HasSelector(Selector):
     # a proper implementation would walk right to left and call a restyle on matched parents
     # but I'll skip this optimization for small static sites
     def matches(self, node): 
-        print(self.target)
         if self.target and not self.target.matches(node):
             return False
         return self._match_child(node)
@@ -273,7 +274,7 @@ class CSSParser:
                 self.literal(";")
                 self.whitespace()
             except Exception as e:
-                print("body", e)
+                if DEBUG: print("Body,", e)
                 why = self.consume_until([';', '}'])
                 if why == ";":
                     self.literal(";")
@@ -380,7 +381,7 @@ class CSSParser:
                     rules.append(Rule(selector, body_copy))
                 self.whitespace()
             except Exception as e:
-                print("parse", e)
+                if DEBUG: print("Parse,", e)
                 why = self.consume_until(['}'])
                 if why == "}":
                     self.literal("}")
@@ -448,9 +449,6 @@ def style(node, rules, parser: CSSParser):
         if isinstance(node, Element) and "style" in node.attributes:
             declarations = CSSParser(node.attributes["style"]).body(3, specificity=(0,0,0))
             candidates.extend(declarations)
-            
-        if isinstance(node, Element) and node.tag == "h1":
-            print(candidates)
             
         # add styles to nodes
         final = {}
@@ -523,6 +521,7 @@ def print_rules(rules):
         print()
 
 if __name__ == "__main__":
+    DEBUG = True
     import sys
     f = "./browser.css"
     if len(sys.argv) > 1:
