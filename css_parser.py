@@ -13,6 +13,125 @@ INHERITED_PROPERTIES = {
     "white-space": "normal",
 }
 
+INITIAL_PROPRETIES = {
+    # Positioning & Layout
+    "display": "inline",
+    "position": "static",
+    "z-index": "auto",
+    "top": "auto",
+    "right": "auto",
+    "bottom": "auto",
+    "left": "auto",
+    "float": "none",
+    "clear": "none",
+
+    # Box Model
+    "box-sizing": "content-box",
+    "margin-top": "0",
+    "margin-right": "0",
+    "margin-bottom": "0",
+    "margin-left": "0",
+    "padding-top": "0",
+    "padding-right": "0",
+    "padding-bottom": "0",
+    "padding-left": "0",
+    "border-width": "medium",
+    "border-style": "none",
+    "border-color": "currentcolor",
+    "border-radius": "0",
+
+    # Background
+    "background-color": "transparent",
+    "background-image": "none",
+    "background-repeat": "repeat",
+    "background-position-x": "0%",
+    "background-position-y": "0%",
+    "background-size": "auto",
+    "background-attachment": "scroll",
+    "background-clip": "border-box",
+    "background-origin": "padding-box",
+
+    # Sizing
+    "width": "auto",
+    "min-width": "0",
+    "max-width": "none",
+    "height": "auto",
+    "min-height": "0",
+    "max-height": "none",
+
+    # Typography
+    "font-style": "normal",
+    "font-variant": "normal",
+    "font-weight": "normal",
+    "font-stretch": "normal",
+    "font-size": "medium",
+    "font-family": "initial",  # no universal fixed value — depends on UA
+    "line-height": "normal",
+    "text-align": "start",  # CSS3; CSS2 had 'left' for LTR
+    "text-decoration-line": "none",
+    "text-transform": "none",
+    "letter-spacing": "normal",
+    "word-spacing": "normal",
+    "white-space": "normal",
+    "vertical-align": "baseline",
+    "text-indent": "0",
+    "direction": "ltr",
+
+    # Color & Visibility
+    "color": "initial",  # UA dependent, often black
+    "opacity": "1",
+    "visibility": "visible",
+
+    # List Style
+    "list-style-type": "disc",
+    "list-style-image": "none",
+    "list-style-position": "outside",
+
+    # Tables
+    "border-collapse": "separate",
+    "border-spacing": "0",
+    "caption-side": "top",
+    "table-layout": "auto",
+
+    # Overflow
+    "overflow-x": "visible",
+    "overflow-y": "visible",
+
+    # Flexbox
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "flex-grow": "0",
+    "flex-shrink": "1",
+    "flex-basis": "auto",
+    "align-items": "stretch",
+    "justify-content": "flex-start",
+    "align-content": "stretch",
+
+    # Grid
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "grid-auto-flow": "row",
+    "grid-auto-columns": "auto",
+    "grid-auto-rows": "auto",
+
+    # Transitions & Animation
+    "transition-property": "all",
+    "transition-duration": "0s",
+    "transition-timing-function": "ease",
+    "transition-delay": "0s",
+    "animation-name": "none",
+    "animation-duration": "0s",
+    "animation-timing-function": "ease",
+    "animation-iteration-count": "1",
+    "animation-direction": "normal",
+    "animation-fill-mode": "none",
+    "animation-play-state": "running",
+
+    # Transforms
+    "transform": "none",
+    "transform-origin": "50% 50% 0",
+}
+
 # font shorthand keywords
 STYLE = {"italic", "oblique"}
 VARIANT = {"small-caps"}
@@ -156,6 +275,10 @@ class Rule:
 class CSSParser:
     def __init__(self, s):
         self.s = s
+        self.i = 0
+        self.decl_count = 0
+        
+    def reset(self):
         self.i = 0
         self.decl_count = 0
     
@@ -483,15 +606,16 @@ def _compute(node):
     # resolve 'inherit' and related keywords
     for prop, value in node.style.items():
         if value == "inherit":
-            node.style[prop] = node.parent.style[prop]
-        elif value == "initial":
-            # node.style[prop] = INHERITED_PROPERTIES[prop]
-            del node.style[prop]
-        elif value == "unset":
-            if prop in INHERITED_PROPERTIES:
+            if prop in node.parent.style:
                 node.style[prop] = node.parent.style[prop]
-            else:
-                del node.style[prop]
+        elif value == "initial":
+            if prop in INITIAL_PROPRETIES:
+                node.style[prop] = INITIAL_PROPRETIES[prop]
+        elif value == "unset":
+            if prop in INHERITED_PROPERTIES and prop in node.parent.style:
+                node.style[prop] = node.parent.style[prop]
+            elif prop in INITIAL_PROPRETIES:
+                node.style[prop] = INITIAL_PROPRETIES[prop]
                 
     # compute font shorthand (font-size and font-family are required
     # font: [font-style] [font-variant] [font-weight] [font-stretch] font-size [/ line-height] font-family

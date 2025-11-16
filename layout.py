@@ -219,8 +219,7 @@ class BlockLayout:
     def open_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
         if tag == "br":
-            self.flush()
-            self.cy += self.current_font.cached_metrics['linespace'] * 1.25
+            self.new_line()
         elif tag == 'h1 class="title"':
             self.align = "center"
         elif tag == "sup":
@@ -231,8 +230,7 @@ class BlockLayout:
     def close_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
         if tag == "h1":
-            self.flush()
-            self.cy += self.current_font.cached_metrics['linespace'] * 1.25
+            self.new_line()
             self.align = "left"
         elif tag in ("sup", "sub"):
             self.supersub = "normal"

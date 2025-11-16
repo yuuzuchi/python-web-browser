@@ -1,8 +1,8 @@
 import tkinter
-from html_parser import Element, HTMLParser, print_tree
+from html_parser import Element, HTMLParser, Text, print_tree
 from url import URL
 from dataclasses import dataclass
-from layout import DocumentLayout, paint_tree, tree_to_list, MARGINS
+from layout import DocumentLayout, TextLayout, paint_tree, tree_to_list, MARGINS
 from css_parser import CSSParser, style, print_rules
 import time
 
@@ -57,6 +57,7 @@ class Browser:
         
         self.document = None
         self.display_list = []
+        self.url = None
         
         self.css_parser = CSSParser(open("browser.css").read())
         self.DEFAULT_STYLE_SHEET = self.css_parser.parse(origin_priority=1)
@@ -94,10 +95,12 @@ class Browser:
         self.canvas.create_rectangle(self.ctx.width-self.scroll.bar_width, self.scroll.bar_y, self.ctx.width, self.scroll.bar_y+self.scroll.bar_height, width=0, fill="#aaaaaa")
     
     def load(self, url: URL):
+        self.url = url
         body = url.request()
         self.rootnode = HTMLParser(body).parse()
 
         # css rules
+        self.css_parser.reset()
         self.rules = self.DEFAULT_STYLE_SHEET.copy()
         tree_as_list = tree_to_list(self.rootnode, [])
         for i, node in enumerate(tree_as_list):
@@ -132,7 +135,6 @@ class Browser:
         #         print(item)
         #             # pass
         self._layout()
-        self.update()
     
     def _layout(self):
         start_time = time.perf_counter()
@@ -180,6 +182,26 @@ class Browser:
                 e.x >= self.ctx.width-self.scroll.bar_width and e.x < self.ctx.width:
             self.scroll.is_dragging = True
             self.scroll.drag_offset = e.y - self.scroll.bar_y
+
+        x, y = e.x, e.y + self.scroll.pos
+
+        objs = [obj for obj in tree_to_list(self.document, [])
+                if obj.x <= x < obj.x + obj.width
+                and obj.y <= y < obj.y + obj.height]
+        
+        if not objs: return
+        deepest = objs[-1] # most recently painted object is probably the one clicked on
+        if isinstance(deepest, TextLayout):
+            elt = deepest.node
+        else:
+            elt = deepest.nodes[-1]
+       
+        while elt:
+            if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
+                print("Clicked: ", elt.attributes["href"])
+                url = self.url.resolve(elt.attributes["href"])
+                return self.load(url)
+            elt = elt.parent
     
     def on_mouse_drag(self, e):
         # scrollbar drag
@@ -215,7 +237,10 @@ if __name__ == "__main__":
         else:
             url = arg
     if url:
-        Browser(options).load(URL(url))
+        browser = Browser(options)
+        browser.load(URL(url))
+        browser.update()
+        tkinter.mainloop()
     else:
         print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] [<url> | test]")
-    tkinter.mainloop()
+    

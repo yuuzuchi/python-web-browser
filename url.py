@@ -9,6 +9,7 @@ class URL:
         self._init_state(url)
     
     def _init_state(self, url: str) -> None:
+        self.url = url
         """Extracts parts of URL
         - **scheme** - data: OR (view-source):[http, https, file]
         - data accepts **chartype** [US-ASCII, UTF-8] and **MIME-TYPE** [text/plain, text/html]"""
@@ -36,6 +37,7 @@ class URL:
                 assert self.charset in ("US-ASCII", "UTF-8")
                 return
         except Exception:
+            print("URL data error!")
             self._init_state("about:blank")
             
         self.source = False
@@ -57,10 +59,18 @@ class URL:
             if ":" in self.host:
                 self.host, self.port = self.host.split(":",1)
                 self.port = int(self.port)
+                
+            # close socket if host/port changed
+            if self.s is not None:
+                print("closed")
+                self.s.close()
+                self.s = None
         except Exception:
+            print("URL scheme error!")
             self._init_state("about:blank")
 
     def request(self, headers: dict={}) -> str:
+        print("request:", self.url)
         """Performs a **GET** request using HTTP/1.1 connection: keep-alive
         \n Automatically performs up to 100 redirects"""
         if self.scheme == "blank":
@@ -83,7 +93,6 @@ class URL:
             return self.data
         
         # http and https
-        
         if not self.s:
             self.s = socket.socket(
                 family=socket.AF_INET,
@@ -106,6 +115,7 @@ class URL:
         self.s.send(request.encode("utf8"))
         response = self.s.makefile("rb", encoding="utf8", newline="\r\n")
         statusline = response.readline().decode("utf-8")
+        print(statusline.strip())
         version, status, explanation = statusline.split(" ", 2)
         
         response_headers = {}
@@ -144,6 +154,7 @@ class URL:
         return content.decode("utf-8")
                 
     def _redirect(self, location: str) -> str:
+        print("Redirecting to", location)
         if self.redirects >= 100:
             return "Error: Redirect Limit Reached"
 
