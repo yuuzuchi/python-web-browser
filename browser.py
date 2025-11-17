@@ -7,11 +7,6 @@ from css_parser import CSSParser, style, print_rules
 import time
 
 @dataclass
-class WindowContext:
-    width: int
-    height: int
-
-@dataclass
 class ScrollState:
     is_dragging: bool = False
     drag_offset: int = 0
@@ -30,13 +25,12 @@ class Browser:
         - rtl: bool, Right to Left text direction rendering
         - s <width>x<height>"""
         dimensions = [int(val) for val in options.get("s", "1280x720").split("x")]
-        self.ctx = WindowContext(dimensions[0], dimensions[1])
         self.window = tkinter.Tk()
         self.window.configure(bg="white")
         self.canvas = tkinter.Canvas(
             self.window,
-            width=self.ctx.width,
-            height=self.ctx.height,
+            width=dimensions[0],
+            height=dimensions[1],
             bg="white"
         )
         self.canvas.pack(fill="both", expand=True)
@@ -50,10 +44,70 @@ class Browser:
         self.window.bind("<B1-Motion>", self.on_mouse_drag)
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
+        # keep CLI flags accessible to other methods
+        self.options = options
+        self.rtl = options.get("rtl", False) # currently broken sowwy
+        
+        self.drawing = False # running draw loop
+        self.active_tab = None
+        self.tabs = []
+
+    def new_tab(self, url):
+        new_tab = Tab(self.canvas, options=self.options)
+        new_tab.load(url)
+        self.active_tab = new_tab
+        self.tabs.append(new_tab)
+        self.start()
+
+    def draw(self):
+        self.canvas.delete("all")
+        self.active_tab.draw()
+        self.draw_scrollbar()
+        
+    def start(self):
+        if self.drawing: 
+            return
+        self.drawing = True
+        self.update()
+
+    def update(self):
+        if not self.drawing:
+            return
+        self.draw()
+        self.window.after(8, self.update)
+        
+    def resize_canvas(self, e):
+        self.canvas.config(width=e.width, height=e.height)
+        self.active_tab._layout()
+        
+    def draw_scrollbar(self):
+        # get scrollbar properties from current tab
+        scroll = self.active_tab.scroll
+        text_height = self.active_tab.text_height
+        
+        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if height >= text_height:
+            return
+        
+        self.canvas.create_rectangle(width-scroll.bar_width, 0, width, height, width=0, fill="#cccccc")
+        scroll.bar_height = height**2 / text_height
+        scroll.bar_y = scroll.pos*height / text_height
+        self.canvas.create_rectangle(width-scroll.bar_width, scroll.bar_y, width, scroll.bar_y+scroll.bar_height, width=0, fill="#aaaaaa")
+        
+    def scrolldown(self, e): self.active_tab.scrolldown()
+    def scrollup(self, e): self.active_tab.scrollup()
+    def scrolldelta(self, e): self.active_tab.scrolldelta(e.delta)
+    def on_mouse_down(self, e): self.active_tab.on_mouse_down(e.x, e.y)
+    def on_mouse_drag(self, e): self.active_tab.on_mouse_drag(e.x, e.y)
+    def on_mouse_up(self, e): self.active_tab.on_mouse_up()
+    
+class Tab:
+    def __init__(self, canvas: tkinter.Canvas, options: dict={}):
+        self.canvas = canvas
+        self.options = options
         self.scroll = ScrollState()
         self.rootnode = []
         self.text_height = 0
-        self.rtl = options.get("rtl", False)
         
         self.document = None
         self.display_list = []
@@ -62,37 +116,13 @@ class Browser:
         self.css_parser = CSSParser(open("browser.css").read())
         self.DEFAULT_STYLE_SHEET = self.css_parser.parse(origin_priority=1)
         self.rules = []
-
-        # keep CLI flags accessible to other methods
-        self.options = options
-        
-    def resize_canvas(self, e):
-        self.ctx.width = e.width
-        self.ctx.height = e.height
-        self.canvas.config(width=e.width, height=e.height)
-        self._layout()
-        
-    def update(self):
-        self.update_scroll()
-        self.draw()
-        
-        self.window.after(8, self.update)
     
     def draw(self):
-        self.canvas.delete("all")
+        self.update_scroll()
         for cmd in self.display_list:
-            if cmd.top > self.scroll.pos + self.ctx.height: continue
+            if cmd.top > self.scroll.pos + self.canvas.winfo_height(): continue
             if cmd.bottom + MARGINS[3] < self.scroll.pos: continue
             cmd.execute(self.scroll.pos, self.canvas)
-        self.draw_scrollbar()
-            
-    def draw_scrollbar(self):
-        if self.ctx.height >= self.text_height:
-            return
-        self.canvas.create_rectangle(self.ctx.width-self.scroll.bar_width, 0, self.ctx.width, self.ctx.height, width=0, fill="#cccccc")
-        self.scroll.bar_height = self.ctx.height**2 / self.text_height
-        self.scroll.bar_y = self.scroll.pos*self.ctx.height / self.text_height
-        self.canvas.create_rectangle(self.ctx.width-self.scroll.bar_width, self.scroll.bar_y, self.ctx.width, self.scroll.bar_y+self.scroll.bar_height, width=0, fill="#aaaaaa")
     
     def load(self, url: URL):
         self.url = url
@@ -103,7 +133,7 @@ class Browser:
         self.css_parser.reset()
         self.rules = self.DEFAULT_STYLE_SHEET.copy()
         tree_as_list = tree_to_list(self.rootnode, [])
-        for i, node in enumerate(tree_as_list):
+        for node in tree_as_list:
             # external stylesheets
             if isinstance(node, Element) and node.tag == "link" \
                     and node.attributes.get("rel") == "stylesheet" \
@@ -119,7 +149,7 @@ class Browser:
         style(self.rootnode, self.rules, self.css_parser)
         elapsed_time = time.perf_counter() - start_time
         
-        self.document = DocumentLayout(self.rootnode, self.ctx)
+        self.document = DocumentLayout(self.rootnode, self.canvas)
         # conditional debug output controlled by CLI flags:
         if self.options.get("t", False):
             print(print_tree(self.rootnode, source=True))
@@ -128,12 +158,6 @@ class Browser:
             print(f"style() in{elapsed_time: .6f} seconds, {len(self.rules)} rules")
         print("\nCalculating layout...\n")
 
-        # new_tree = tree_to_list(self.rootnode, [])
-        # for item in new_tree:
-        #     if isinstance(item, Element):
-        #             # if "18px" in repr(item):
-        #         print(item)
-        #             # pass
         self._layout()
     
     def _layout(self):
@@ -142,24 +166,26 @@ class Browser:
         self.display_list = []
         paint_tree(self.document, self.display_list)
         elapsed_time = time.perf_counter() - start_time
-        print(f"layout() {self.ctx.width}x{self.ctx.height} in{elapsed_time: .6f} seconds, {len(self.display_list)} nodes")
+        print(f"layout() {self.canvas.winfo_width()}x{self.canvas.winfo_height()} in{elapsed_time: .6f} seconds, {len(self.display_list)} nodes")
         self.text_height = max(self.document.height, 0)
         
-    def scrolldown(self, e):
+    def scrolldown(self):
         """Down arrow / Linux mouse wheel down"""
         self.scroll.velocity += 4
         self.scroll.target_pos += self.scroll.step
     
-    def scrollup(self, e):
+    def scrollup(self):
         """Up arrow / Linux mouse wheel up"""
         self.scroll.velocity -= 4
         self.scroll.target_pos -= self.scroll.step
         
-    def scrolldelta(self, e):
+    def scrolldelta(self, delta):
         """Windows / macOS scroll"""
-        self.scroll.velocity += self.scroll.step / 2 * e.delta
+        self.scroll.velocity += self.scroll.step / 2 * delta
         
     def update_scroll(self):
+        height = self.canvas.winfo_height()
+        
         self.scroll.pos += self.scroll.velocity
         self.scroll.velocity *= self.scroll.friction
         self.scroll.pos += (self.scroll.target_pos - self.scroll.pos) * 0.28
@@ -171,19 +197,21 @@ class Browser:
             self.scroll.pos = self.scroll.target_pos
         
         # constrain
-        self.scroll.pos = min(self.scroll.pos, self.text_height-self.ctx.height+MARGINS[3])
+        self.scroll.pos = min(self.scroll.pos, self.text_height-height+MARGINS[3])
         self.scroll.pos = max(0, self.scroll.pos)
-        self.scroll.target_pos = min(self.scroll.target_pos, self.text_height-self.ctx.height+MARGINS[3])
+        self.scroll.target_pos = min(self.scroll.target_pos, self.text_height-height+MARGINS[3])
         self.scroll.target_pos = max(0, self.scroll.target_pos)
 
-    def on_mouse_down(self, e):
+    def on_mouse_down(self, x, y):
+        width = self.canvas.winfo_width()
         # handle scrollbar drag
-        if e.y >= self.scroll.bar_y and e.y <= self.scroll.bar_y + self.scroll.bar_height and \
-                e.x >= self.ctx.width-self.scroll.bar_width and e.x < self.ctx.width:
+        if y >= self.scroll.bar_y and y <= self.scroll.bar_y + self.scroll.bar_height and \
+                x >= width-self.scroll.bar_width and x < width:
             self.scroll.is_dragging = True
-            self.scroll.drag_offset = e.y - self.scroll.bar_y
+            self.scroll.drag_offset = y - self.scroll.bar_y
 
-        x, y = e.x, e.y + self.scroll.pos
+        # calculate x, y RELATIVE to scroll
+        y += self.scroll.pos
 
         objs = [obj for obj in tree_to_list(self.document, [])
                 if obj.x <= x < obj.x + obj.width
@@ -203,18 +231,19 @@ class Browser:
                 return self.load(url)
             elt = elt.parent
     
-    def on_mouse_drag(self, e):
+    def on_mouse_drag(self, x, y):
+        height = self.canvas.winfo_height()
         # scrollbar drag
         if self.scroll.is_dragging:
-            bar_y = e.y - self.scroll.drag_offset
-            self.scroll.target_pos = self.scroll.pos = self.text_height * bar_y / self.ctx.height
+            bar_y = y - self.scroll.drag_offset
+            self.scroll.target_pos = self.scroll.pos = self.text_height * bar_y / height
 
         # absolute scroll
         else:
-            screen_percent = e.y / self.ctx.height
-            self.scroll.target_pos = self.scroll.pos = (self.text_height - self.ctx.height) * screen_percent
+            screen_percent = y / height
+            self.scroll.target_pos = self.scroll.pos = (self.text_height - height) * screen_percent
 
-    def on_mouse_up(self, e):
+    def on_mouse_up(self):
         self.scroll.is_dragging = False
 
 if __name__ == "__main__":
@@ -238,8 +267,7 @@ if __name__ == "__main__":
             url = arg
     if url:
         browser = Browser(options)
-        browser.load(URL(url))
-        browser.update()
+        browser.new_tab(URL(url))
         tkinter.mainloop()
     else:
         print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] [<url> | test]")

@@ -1,5 +1,6 @@
 import collections
 import random
+import tkinter
 from draw import DrawRect, DrawText
 from font_cache import get_font
 from html_parser import Element, Text
@@ -41,12 +42,12 @@ def get_width(word, font, width_cache):
         return w
 
 class DocumentLayout:
-    def __init__(self, node, ctx):
+    def __init__(self, node, canvas: tkinter.Canvas):
         self.node = node
+        self.canvas = canvas
         self.parent = None
         self.children = []
         self.width_cache = collections.defaultdict(dict) # font: {word: width}
-        self.ctx = ctx
 
         self.x = None
         self.y = None
@@ -59,7 +60,7 @@ class DocumentLayout:
         
         child = BlockLayout([self.node], self, None, self.width_cache) # <html> node
         self.children.append(child)
-        self.width = self.ctx.width - 2*MARGINS[0] - MARGINS[4]
+        self.width = self.canvas.winfo_width() - 2*MARGINS[0] - MARGINS[4]
         self.x = MARGINS[0]
         self.y = MARGINS[1]
         child.layout()
