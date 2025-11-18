@@ -2,6 +2,14 @@ import socket
 import ssl
 import gzip
 
+def is_url(url: str):
+    if " " in url:
+        return False
+    if url.startswith("about:blank") or url.startswith("data:"):
+        return True
+    if "://" in url and all(url.split("://")):
+        return True
+
 class URL:
     def __init__(self, url: str):
         self.redirects = 0
@@ -52,6 +60,10 @@ class URL:
             self._init_state("about:blank")
             
         self.source = False
+        
+        # if no scheme provided (like google.com), auto prefix with https
+        if "://" not in url:
+            self.url = url = "https://" + url
         
         try:
             self.scheme, url = url.split("://", 1)
@@ -177,19 +189,41 @@ class URL:
         self.redirects += 1
         return self.request()
 
-    def resolve(self, url):
-        if "://" in url: return URL(url)
-        if not url.startswith("/"):
-            dir, _ = self.path.rsplit("/", 1)
-            while url.startswith("../"):
-                _, url = url.split("/", 1)
-                if "/" in dir:
-                    dir, _ = dir.rsplit("/", 1)
-            url = dir + "/" + url
-        if url.startswith("//"):
-            return URL(self.scheme + ":" + url)
-        else:
-            return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url)
+    def resolve(self, url: str, from_user_input: bool = False):
+        def resolve_path_and_host(base):
+            # is full scheme: return as is
+            if "://" in base: return base
+
+            if not base.startswith("/"):
+                # user typed shortened URL (e.g. "google.com") in address bar
+                if from_user_input: 
+                    if "." in base and " " not in base:
+                        return f"https://{base}"
+                    else:
+                        return f"http://frogfind.com/?q={base}"
+                    
+                dir, _ = self.path.rsplit("/", 1)
+                while base.startswith("../"):
+                    _, base = base.split("/", 1)
+                    if "/" in dir:
+                        dir, _ = dir.rsplit("/", 1)
+                base = dir + "/" + base
+                
+            # //host/path
+            if base.startswith("//"):
+                return f"{self.scheme}:{base}"
+
+            # absolute path starting with /
+            else:
+                return f"{self.scheme}://{self.host}:{str(self.port)}{base}"
+    
+        base, sep, query = url.partition("?")
+        resolved = resolve_path_and_host(base)
+
+        if sep:
+            return URL(f"{resolved}?{query}")
+
+        return URL(resolved)
     
 def show(body: str) -> None: # print all text between tags
     in_tag = False

@@ -20,7 +20,8 @@ class ScrollState:
     target_pos: int = 0
 
 class Tab:
-    def __init__(self, canvas: tkinter.Canvas, tab_height, options: dict={}):
+    def __init__(self, url: URL, canvas: tkinter.Canvas, tab_height, options: dict={}):
+        self.url = url
         self.canvas = canvas
         self.options = options
         self.scroll = ScrollState()
@@ -33,7 +34,8 @@ class Tab:
         self.document = None
         self.display_list = []
         self.url = None
-        self.history = []
+        self.history = [url]
+        self.forward_history = []
         self.title = "blank"
         self._on_title_change = None
         self._on_open_in_new_tab = None
@@ -41,6 +43,8 @@ class Tab:
         self.css_parser = CSSParser(open("browser.css").read())
         self.DEFAULT_STYLE_SHEET = self.css_parser.parse(origin_priority=1)
         self.rules = []
+        
+        self.load(url)
     
     def draw(self):
         self.update_scroll()
@@ -57,10 +61,8 @@ class Tab:
     
     def load(self, url: URL):
         self.url = url
-        self.history.append(url)
         body = url.request()
         self.rootnode = HTMLParser(body).parse()
-        self.scroll.pos = self.scroll.target_pos = 0
 
         # css rules
         self.css_parser.reset()
@@ -76,7 +78,7 @@ class Tab:
                     body = style_url.request()
                     self.rules.extend(self.css_parser.parse(origin_priority=1, s=body))
                 except:
-                    print("Could not fetch stylesheet from", body)
+                    print("Could not fetch stylesheet from", style_url)
 
             elif isinstance(node, Text) and node.parent.tag == "title":
                 self.title = node.text
@@ -108,11 +110,27 @@ class Tab:
         self.text_height = max(self.document.height, 0)
         self.invalidate() 
         
+    def navigate(self, url: str, from_user_input: bool = False):       
+        url = self.url.resolve(url, from_user_input=from_user_input)
+        self.history.append(url)
+        self.forward_history = []
+        self.load(url)
+        self.scroll.pos = self.scroll.target_pos = 0
+    
     def go_back(self):
-        if len(self.history) > 1:
-            self.history.pop()
-            back = self.history.pop()
+        if self.can_go_back():
+            self.forward_history.append(self.history.pop())
+            back = self.history[-1]
             self.load(back)
+            
+    def go_forward(self):
+        if self.can_go_forward():
+            forward = self.forward_history.pop()
+            self.history.append(forward)
+            self.load(forward)
+        
+    def can_go_back(self): return len(self.history) > 1
+    def can_go_forward(self): return self.forward_history
         
     def scrolldown(self):
         """Down arrow / Linux mouse wheel down"""
@@ -164,8 +182,7 @@ class Tab:
         while elt:
             if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
                 print("Clicked: ", elt.attributes["href"])
-                url = self.url.resolve(elt.attributes["href"])
-                return self.load(url)
+                return self.navigate(elt.attributes["href"])
             elt = elt.parent
             
     def on_middlemouse_down(self, x, y):

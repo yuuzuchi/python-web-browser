@@ -6,7 +6,7 @@ from browser import Browser
 class Chrome:
     def __init__(self, browser: Browser):
         self.browser = browser
-        self.font = get_font(size=20, weight="normal", style="roman")
+        self.font = get_font(size=16, weight="normal", style="roman")
         self.font_height = self.font.cached_metrics["linespace"]
 
         self.padding = 5
@@ -26,7 +26,9 @@ class Chrome:
         self.NAV_WIDTH = self.font.measure("<") + 2*self.padding
         self.back_rect = Rect(self.padding, self.urlbar_top+self.padding, 
                               self.padding+self.NAV_WIDTH, self.urlbar_bottom-self.padding)
-        self.address_rect = Rect(self.back_rect.top+self.padding, self.urlbar_top+self.padding, 
+        self.forward_rect = Rect(self.back_rect.right+self.padding, self.urlbar_top+self.padding, 
+                              self.back_rect.right+self.padding+self.NAV_WIDTH, self.urlbar_bottom-self.padding)
+        self.address_rect = Rect(self.forward_rect.right+self.padding, self.urlbar_top+self.padding, 
                                  self.browser.canvas.winfo_width()-self.padding, self.urlbar_bottom-self.padding)
 
     def resize(self):
@@ -45,8 +47,8 @@ class Chrome:
             self.browser.new_tab(URL("https://browser.engineering"))
         elif self.back_rect.contains_point(x, y):
             self.browser.active_tab.go_back()
-        # elif self.forward_rect.contains_point(x, y):
-        #     self.browser.active_tab.go_forward()
+        elif self.forward_rect.contains_point(x, y):
+            self.browser.active_tab.go_forward()
         elif self.address_rect.contains_point(x, y):
             self.focus = "address bar"
             self.address_bar = ""
@@ -80,7 +82,7 @@ class Chrome:
     
     def enter(self):
         if self.focus == "address bar":
-            self.browser.active_tab.load(URL(self.address_bar))
+            self.browser.active_tab.navigate(self.address_bar, from_user_input=True)
             self.focus = None
     
     def backspace(self):
@@ -104,12 +106,17 @@ class Chrome:
         
         cmds.extend(self.paint_tabs())
 
-        # outline around buttons
-        cmds.append(DrawOutline(self.back_rect, "black", 1))
-        cmds.append(DrawText(self.back_rect.left + self.padding, self.back_rect.top, "<", self.NAV_WIDTH, self.font, "black"))
-        cmds.append(DrawOutline(self.address_rect, "black", 1))
+        # navigation buttons
+        back_color = "black" if self.browser.active_tab.can_go_back() else "gray"
+        forward_color = "black" if self.browser.active_tab.can_go_forward() else "gray"
+        
+        cmds.append(DrawOutline(self.back_rect, back_color, 1))
+        cmds.append(DrawText(self.back_rect.left + self.padding, self.back_rect.top, "<", self.NAV_WIDTH, self.font, back_color))
+        cmds.append(DrawOutline(self.forward_rect, forward_color, 1))
+        cmds.append(DrawText(self.forward_rect.left + self.padding, self.forward_rect.top, ">", self.NAV_WIDTH, self.font, forward_color))
         
         cmds.extend(self.paint_addressbar())
+        cmds.append(DrawOutline(self.address_rect, "black", 1))
                 
         return cmds
     

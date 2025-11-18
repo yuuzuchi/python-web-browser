@@ -41,9 +41,8 @@ class Browser:
         from chrome import Chrome
         self.chrome = Chrome(self)
 
-    def new_tab(self, url):
-        new_tab = Tab(self.canvas, self.canvas.winfo_height()-self.chrome.bottom, options=self.options)
-        new_tab.load(url)
+    def new_tab(self, url: URL):
+        new_tab = Tab(url, self.canvas, self.canvas.winfo_height()-self.chrome.bottom, options=self.options)
         # set tab's callbacks
         new_tab._on_title_change = self.rename_window
         new_tab._on_open_in_new_tab = self.new_tab
