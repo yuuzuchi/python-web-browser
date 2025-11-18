@@ -262,12 +262,15 @@ class BlockLayout:
         
         # get width of word for given style and weight
         word_nohyphen = word.replace("\u00AD", "")
-        w = get_width(word_nohyphen, self.current_font)
+        space_w = 0 if node.style["white-space"] == "pre" else get_width(" ", self.current_font)
+        w = get_width(word_nohyphen, self.current_font) + space_w
             
         if wrap and self.cx + w > self.width:
             # word cannot be hyphenated, line break now
             if '\u00AD' not in word:
                 self.new_line()
+                line = self.children[-1]
+                previous_word = line.children[-1] if line.children else None
             else:
                 # can be hyphenated, break word as late as possible then recurse on the remaining portion
                 parts = word.split('\u00AD')
@@ -282,11 +285,10 @@ class BlockLayout:
                 previous_word = text
                     
                 self.new_line()
-                self.word(righthalf)
+                self.word(node, righthalf)
                 return
         
         self.cx += w
-            
         text = TextLayout(node, word_nohyphen, line, previous_word)
         line.children.append(text)
             
