@@ -7,7 +7,7 @@ INHERITED_PROPERTIES = {
     "font-size": "16px",
     "font-style": "normal",
     "font-weight": "normal",
-    "font-family": "Crimson Pro",
+    "font-family": "Segoe UI",
     "color": "black",
 
     "white-space": "normal",

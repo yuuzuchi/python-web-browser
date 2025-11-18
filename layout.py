@@ -1,8 +1,8 @@
 import collections
 import random
 import tkinter
-from draw import DrawRect, DrawText
-from font_cache import get_font
+from draw import DrawRect, DrawText, Rect
+from font_cache import get_font, get_width
 from html_parser import Element, Text
 
 BLOCK_ELEMENTS = [
@@ -32,22 +32,12 @@ def tree_to_list(tree, l: list):
         tree_to_list(child, l)
     return l
 
-def get_width(word, font, width_cache):
-    font_id = font.id
-    if word in width_cache[font_id]:
-        return width_cache[font_id][word]
-    else:
-        w = font.measure(word)
-        width_cache[font_id][word] = w
-        return w
-
 class DocumentLayout:
     def __init__(self, node, canvas: tkinter.Canvas):
         self.node = node
         self.canvas = canvas
         self.parent = None
         self.children = []
-        self.width_cache = collections.defaultdict(dict) # font: {word: width}
 
         self.x = None
         self.y = None
@@ -58,7 +48,7 @@ class DocumentLayout:
         # clear the tree each time we call layout
         self.children = []
         
-        child = BlockLayout([self.node], self, None, self.width_cache) # <html> node
+        child = BlockLayout([self.node], self, None) # <html> node
         self.children.append(child)
         self.width = self.canvas.winfo_width() - 2*MARGINS[0] - MARGINS[4]
         self.x = MARGINS[0]
@@ -70,12 +60,11 @@ class DocumentLayout:
         return []
 
 class BlockLayout:
-    def __init__(self, nodes: list[Element | Text], parent, previous, width_cache):
+    def __init__(self, nodes: list[Element | Text], parent, previous):
         self.nodes = nodes
         self.parent = parent
         self.previous = previous
         self.children = []
-        self.width_cache = width_cache
 
         self.x = None
         self.y = None
@@ -109,6 +98,9 @@ class BlockLayout:
         res = f"Nodes: {nodes}, Children: {children}"
         return res
 
+    def self_rect(self):
+        return Rect(self.x, self.y, self.x+self.width, self.y+self.height)
+
     def paint(self):
         cmds = []
         if len(self.nodes) == 1:
@@ -117,8 +109,7 @@ class BlockLayout:
                 bgcolor = node.style.get("background-color", "transparent")
                 
                 if bgcolor != "transparent":
-                    x2, y2 = self.x + self.width, self.y + self.height
-                    rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+                    rect = DrawRect(self.self_rect(), bgcolor)
                     cmds.append(rect)                    
                 # # Color pre tags darker
                 # if node.tag == "pre":
@@ -199,13 +190,13 @@ class BlockLayout:
 
                 # flush combinable elements
                 if anonymous_buffer:
-                    nxt = BlockLayout(anonymous_buffer, self, previous, self.width_cache)
+                    nxt = BlockLayout(anonymous_buffer, self, previous)
                     anonymous_buffer = []
                     self.children.append(nxt)
                     previous = nxt
                     
                 # then add current block element
-                nxt = BlockLayout([child], self, previous, self.width_cache)
+                nxt = BlockLayout([child], self, previous)
                 self.children.append(nxt)
                 previous = nxt
             
@@ -215,7 +206,7 @@ class BlockLayout:
             
         # flush remaining buffer at end
         if anonymous_buffer:
-            self.children.append(BlockLayout(anonymous_buffer, self, previous, self.width_cache))
+            self.children.append(BlockLayout(anonymous_buffer, self, previous))
     
     def open_tag(self, tag):
         tag, attributes = tag.tag, tag.attributes
@@ -271,7 +262,7 @@ class BlockLayout:
         
         # get width of word for given style and weight
         word_nohyphen = word.replace("\u00AD", "")
-        w = get_width(word_nohyphen, self.current_font, self.width_cache)
+        w = get_width(word_nohyphen, self.current_font)
             
         if wrap and self.cx + w > self.width:
             # word cannot be hyphenated, line break now
@@ -286,7 +277,7 @@ class BlockLayout:
                 if idx != -1: 
                     lefthalf = ''.join(parts[:idx+1]) + '-'
                     
-                text = TextLayout(node, lefthalf, line, previous_word, self.width_cache)
+                text = TextLayout(node, lefthalf, line, previous_word)
                 line.children.append(text)
                 previous_word = text
                     
@@ -296,14 +287,14 @@ class BlockLayout:
         
         self.cx += w
             
-        text = TextLayout(node, word_nohyphen, line, previous_word, self.width_cache)
+        text = TextLayout(node, word_nohyphen, line, previous_word)
         line.children.append(text)
             
     def new_line(self):
         self.cx = 0
         last_line = self.children[-1] if self.children else None
         if last_line and not last_line.children: return # there's already a blank line waiting to be written to, don't create another
-        new_line = LineLayout(self.nodes, self, last_line, self.width_cache)
+        new_line = LineLayout(self.nodes, self, last_line)
         self.children.append(new_line)
 
     def _findsplit(self, parts):
@@ -313,7 +304,7 @@ class BlockLayout:
         while l <= r:
             mid = (l + r) // 2
             leftword = ''.join(parts[:mid+1]) + "-"
-            w = get_width(leftword, self.current_font, self.width_cache)
+            w = get_width(leftword, self.current_font)
 
             if self.cx + w <= self.width:
                 ans = mid
@@ -323,12 +314,11 @@ class BlockLayout:
         return ans
 
 class LineLayout:
-    def __init__(self, nodes, parent, previous, width_cache):
+    def __init__(self, nodes, parent, previous):
         self.nodes = nodes
         self.parent = parent
         self.previous = previous
         self.children = []
-        self.width_cache = width_cache
     
     def layout(self):
         self.width = self.parent.width
@@ -359,38 +349,35 @@ class LineLayout:
         return []
 
 class TextLayout:
-    def __init__(self, node, word, parent, previous, width_cache):
+    def __init__(self, node, word, parent, previous):
         self.node = node
         self.word = word
         self.parent = parent
         self.previous = previous
         self.children = []
-        self.width_cache = width_cache
         
-    def layout(self):
         family = self.node.style["font-family"]
         weight = self.node.style["font-weight"]
         style = self.node.style["font-style"]
         whitespace = self.node.style["white-space"]
         if style == "normal": style = "roman"
         size = int(float(self.node.style["font-size"][:-2]) * .75)
+        
         self.font = get_font(family=family, size=size, weight=weight, style=style)
-
-        self.width = get_width(self.word, self.font, self.width_cache)
-
+        self.width = get_width(self.word, self.font)
+        if whitespace != "pre":
+            self.width += get_width(" ", self.font)
+        
+    def layout(self):
         if self.previous:
-            space = get_width(" ", self.font, self.width_cache)
             self.x = self.previous.x + self.previous.width
-            if whitespace != "pre": # pre blocks provide own whitespace
-                self.x += space
         else:
             self.x = self.parent.x
-        
         self.height = self.font.cached_metrics["linespace"]
 
     def paint(self):
         color = self.node.style["color"]
-        return [DrawText(self.x, self.y, self.word, self.font, color)]
+        return [DrawText(self.x, self.y, self.word, self.width, self.font, color)]
         
     
         

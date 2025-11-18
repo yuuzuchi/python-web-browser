@@ -1,23 +1,7 @@
 import tkinter
-from html_parser import Element, HTMLParser, Text, print_tree
+from tab import Tab
+from draw import *
 from url import URL
-from dataclasses import dataclass
-from layout import DocumentLayout, TextLayout, paint_tree, tree_to_list, MARGINS
-from css_parser import CSSParser, style, print_rules
-import time
-
-@dataclass
-class ScrollState:
-    is_dragging: bool = False
-    drag_offset: int = 0
-    pos: int = 0
-    bar_y: int = 0
-    bar_width: int = MARGINS[4]
-    bar_height: int = 0
-    velocity: float = 0
-    friction: float = 0.7
-    step: int = 70
-    target_pos: int = 0
 
 class Browser:
     def __init__(self, options: dict={}):
@@ -25,44 +9,61 @@ class Browser:
         - rtl: bool, Right to Left text direction rendering
         - s <width>x<height>"""
         dimensions = [int(val) for val in options.get("s", "1280x720").split("x")]
+        print(dimensions)
         self.window = tkinter.Tk()
         self.window.configure(bg="white")
-        self.canvas = tkinter.Canvas(
-            self.window,
-            width=dimensions[0],
-            height=dimensions[1],
-            bg="white"
-        )
+        self.canvas = tkinter.Canvas(self.window,
+                                     width=dimensions[0], height=dimensions[1],
+                                     bg="white")
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", self.resize_canvas)
+        self.window.bind("<Key>", self.handle_key)
         self.window.bind("<Down>", self.scrolldown)
         self.window.bind("<Up>", self.scrollup)
+        self.window.bind("<Return>", self.handle_enter)
+        self.window.bind("<BackSpace>", self.handle_backspace)
         self.window.bind("<Button-4>", self.scrollup)
         self.window.bind("<Button-5>", self.scrolldown)
         self.window.bind("<MouseWheel>", self.scrolldelta)
         self.window.bind("<Button-1>", self.on_mouse_down)
+        self.window.bind("<Button-2>", self.on_middlemouse_down)
         self.window.bind("<B1-Motion>", self.on_mouse_drag)
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
         
         # keep CLI flags accessible to other methods
-        self.options = options
         self.rtl = options.get("rtl", False) # currently broken sowwy
+        self.options = options
         
         self.drawing = False # running draw loop
         self.active_tab = None
         self.tabs = []
+        
+        from chrome import Chrome
+        self.chrome = Chrome(self)
 
     def new_tab(self, url):
-        new_tab = Tab(self.canvas, options=self.options)
+        new_tab = Tab(self.canvas, self.canvas.winfo_height()-self.chrome.bottom, options=self.options)
         new_tab.load(url)
-        self.active_tab = new_tab
+        # set tab's callbacks
+        new_tab._on_title_change = self.rename_window
+        new_tab._on_open_in_new_tab = self.new_tab
         self.tabs.append(new_tab)
+        self.active_tab = new_tab
         self.start()
+        self.set_tab(new_tab)
 
     def draw(self):
-        self.canvas.delete("all")
+        self.active_tab.tab_height = self.canvas.winfo_height()-self.chrome.bottom
+        self.active_tab.offset = self.chrome.bottom
+        
         self.active_tab.draw()
+        
+        self.canvas.delete("scrollbar")
         self.draw_scrollbar()
+
+        self.canvas.delete("chrome")
+        for cmd in self.chrome.paint():
+            cmd.execute(0, self.canvas, tags=('chrome'))
         
     def start(self):
         if self.drawing: 
@@ -79,172 +80,71 @@ class Browser:
     def resize_canvas(self, e):
         self.canvas.config(width=e.width, height=e.height)
         self.active_tab._layout()
+        self.chrome.resize()
         
+    def rename_window(self, title):
+        self.window.title(title)
+        
+    def set_tab(self, tab: Tab):
+        self.active_tab = tab
+        self.active_tab.invalidate() # request one draw frame
+        if tab:
+            self.rename_window(tab.title)
+
     def draw_scrollbar(self):
+        if not self.active_tab:
+            return 
         # get scrollbar properties from current tab
         scroll = self.active_tab.scroll
         text_height = self.active_tab.text_height
-        
-        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
+        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()-self.chrome.bottom
+
+        # hide scrollbar if page fits in view
         if height >= text_height:
             return
         
-        self.canvas.create_rectangle(width-scroll.bar_width, 0, width, height, width=0, fill="#cccccc")
-        scroll.bar_height = height**2 / text_height
-        scroll.bar_y = scroll.pos*height / text_height
-        self.canvas.create_rectangle(width-scroll.bar_width, scroll.bar_y, width, scroll.bar_y+scroll.bar_height, width=0, fill="#aaaaaa")
+        self.canvas.create_rectangle(
+            width-scroll.bar_width, self.chrome.bottom, 
+            width, height+self.chrome.bottom, width=0, fill="#cccccc", tags=('scrollbar'))
         
+        scroll.bar_height = height**2 / text_height
+        scroll.bar_y = (scroll.pos * height) / text_height
+        self.canvas.create_rectangle(
+            width-scroll.bar_width, self.chrome.bottom + scroll.bar_y,
+            width, self.chrome.bottom + scroll.bar_y + scroll.bar_height, width=0, fill="#aaaaaa", tags=('scrollbar'))
+        
+    # event handlers    
+    
     def scrolldown(self, e): self.active_tab.scrolldown()
     def scrollup(self, e): self.active_tab.scrollup()
     def scrolldelta(self, e): self.active_tab.scrolldelta(e.delta)
-    def on_mouse_down(self, e): self.active_tab.on_mouse_down(e.x, e.y)
-    def on_mouse_drag(self, e): self.active_tab.on_mouse_drag(e.x, e.y)
+    def on_mouse_drag(self, e): self.active_tab.handle_drag_scroll(e.x, e.y - self.chrome.bottom)
     def on_mouse_up(self, e): self.active_tab.on_mouse_up()
-    
-class Tab:
-    def __init__(self, canvas: tkinter.Canvas, options: dict={}):
-        self.canvas = canvas
-        self.options = options
-        self.scroll = ScrollState()
-        self.rootnode = []
-        self.text_height = 0
-        
-        self.document = None
-        self.display_list = []
-        self.url = None
-        
-        self.css_parser = CSSParser(open("browser.css").read())
-        self.DEFAULT_STYLE_SHEET = self.css_parser.parse(origin_priority=1)
-        self.rules = []
-    
-    def draw(self):
-        self.update_scroll()
-        for cmd in self.display_list:
-            if cmd.top > self.scroll.pos + self.canvas.winfo_height(): continue
-            if cmd.bottom + MARGINS[3] < self.scroll.pos: continue
-            cmd.execute(self.scroll.pos, self.canvas)
-    
-    def load(self, url: URL):
-        self.url = url
-        body = url.request()
-        self.rootnode = HTMLParser(body).parse()
-
-        # css rules
-        self.css_parser.reset()
-        self.rules = self.DEFAULT_STYLE_SHEET.copy()
-        tree_as_list = tree_to_list(self.rootnode, [])
-        for node in tree_as_list:
-            # external stylesheets
-            if isinstance(node, Element) and node.tag == "link" \
-                    and node.attributes.get("rel") == "stylesheet" \
-                    and "href" in node.attributes:
-                style_url = url.resolve(node.attributes['href'])
-                try:
-                    body = style_url.request()
-                    self.rules.extend(self.css_parser.parse(origin_priority=1, s=body))
-                except:
-                    print("Could not fetch stylesheet from", body)
-
-        start_time = time.perf_counter()
-        style(self.rootnode, self.rules, self.css_parser)
-        elapsed_time = time.perf_counter() - start_time
-        
-        self.document = DocumentLayout(self.rootnode, self.canvas)
-        # conditional debug output controlled by CLI flags:
-        if self.options.get("t", False):
-            print(print_tree(self.rootnode, source=True))
-        if self.options.get("c", False):
-            print_rules(self.rules)
-            print(f"style() in{elapsed_time: .6f} seconds, {len(self.rules)} rules")
-        print("\nCalculating layout...\n")
-
-        self._layout()
-    
-    def _layout(self):
-        start_time = time.perf_counter()
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)
-        elapsed_time = time.perf_counter() - start_time
-        print(f"layout() {self.canvas.winfo_width()}x{self.canvas.winfo_height()} in{elapsed_time: .6f} seconds, {len(self.display_list)} nodes")
-        self.text_height = max(self.document.height, 0)
-        
-    def scrolldown(self):
-        """Down arrow / Linux mouse wheel down"""
-        self.scroll.velocity += 4
-        self.scroll.target_pos += self.scroll.step
-    
-    def scrollup(self):
-        """Up arrow / Linux mouse wheel up"""
-        self.scroll.velocity -= 4
-        self.scroll.target_pos -= self.scroll.step
-        
-    def scrolldelta(self, delta):
-        """Windows / macOS scroll"""
-        self.scroll.velocity += self.scroll.step / 2 * delta
-        
-    def update_scroll(self):
-        height = self.canvas.winfo_height()
-        
-        self.scroll.pos += self.scroll.velocity
-        self.scroll.velocity *= self.scroll.friction
-        self.scroll.pos += (self.scroll.target_pos - self.scroll.pos) * 0.28
-
-        # snap to 0
-        if abs(self.scroll.velocity) < 0.1:
-            self.scroll.velocity = 0
-        if abs(self.scroll.target_pos - self.scroll.pos) < 0.5:
-            self.scroll.pos = self.scroll.target_pos
-        
-        # constrain
-        self.scroll.pos = min(self.scroll.pos, self.text_height-height+MARGINS[3])
-        self.scroll.pos = max(0, self.scroll.pos)
-        self.scroll.target_pos = min(self.scroll.target_pos, self.text_height-height+MARGINS[3])
-        self.scroll.target_pos = max(0, self.scroll.target_pos)
-
-    def on_mouse_down(self, x, y):
-        width = self.canvas.winfo_width()
-        # handle scrollbar drag
-        if y >= self.scroll.bar_y and y <= self.scroll.bar_y + self.scroll.bar_height and \
-                x >= width-self.scroll.bar_width and x < width:
-            self.scroll.is_dragging = True
-            self.scroll.drag_offset = y - self.scroll.bar_y
-
-        # calculate x, y RELATIVE to scroll
-        y += self.scroll.pos
-
-        objs = [obj for obj in tree_to_list(self.document, [])
-                if obj.x <= x < obj.x + obj.width
-                and obj.y <= y < obj.y + obj.height]
-        
-        if not objs: return
-        deepest = objs[-1] # most recently painted object is probably the one clicked on
-        if isinstance(deepest, TextLayout):
-            elt = deepest.node
+    def on_mouse_down(self, e): 
+        # check clicking on other tabs
+        if e.y < self.chrome.bottom:
+            self.chrome.click(e.x, e.y)
         else:
-            elt = deepest.nodes[-1]
-       
-        while elt:
-            if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
-                print("Clicked: ", elt.attributes["href"])
-                url = self.url.resolve(elt.attributes["href"])
-                return self.load(url)
-            elt = elt.parent
-    
-    def on_mouse_drag(self, x, y):
-        height = self.canvas.winfo_height()
-        # scrollbar drag
-        if self.scroll.is_dragging:
-            bar_y = y - self.scroll.drag_offset
-            self.scroll.target_pos = self.scroll.pos = self.text_height * bar_y / height
-
-        # absolute scroll
+            # coords relative to tab
+            tab_y = e.y - self.chrome.bottom
+            self.active_tab.on_leftmouse_down(e.x, tab_y)
+            
+    def on_middlemouse_down(self, e): 
+        # check clicking on tabs
+        if e.y < self.chrome.tabbar_bottom:
+            self.chrome.middleclick(e.x, e.y)
         else:
-            screen_percent = y / height
-            self.scroll.target_pos = self.scroll.pos = (self.text_height - height) * screen_percent
+            # coords relative to tab
+            tab_y = e.y - self.chrome.bottom
+            self.active_tab.on_middlemouse_down(e.x, tab_y)
 
-    def on_mouse_up(self):
-        self.scroll.is_dragging = False
+    def handle_key(self, e):
+        if len(e.char) == 0: return
+        if not (0x20 <= ord(e.char) < 0x7f): return
+        self.chrome.keypress(e.char)
+            
+    def handle_enter(self, e): self.chrome.enter()
+    def handle_backspace(self, e): self.chrome.backspace()
 
 if __name__ == "__main__":
     import sys
@@ -271,4 +171,3 @@ if __name__ == "__main__":
         tkinter.mainloop()
     else:
         print("Usage: python3 browser.py [-rtl] [-c] [-t] [-h] [<url> | test]")
-    
