@@ -3,7 +3,7 @@ import time
 import tkinter
 from css_parser import CSSParser, print_rules, style
 from html_parser import Element, HTMLParser, Text, print_tree
-from layout import MARGINS, DocumentLayout, TextLayout, paint_tree, tree_to_list
+from layout import MARGINS, AnonymousLayout, BlockLayout, DocumentLayout, Layout, TextFragment, TextLayout, paint_tree, print_layout_tree, print_paint, tree_to_list
 from url import URL
 
 @dataclass
@@ -67,7 +67,7 @@ class Tab:
         # css rules
         self.css_parser.reset()
         self.rules = self.DEFAULT_STYLE_SHEET.copy()
-        tree_as_list = tree_to_list(self.rootnode, [])
+        tree_as_list = tree_to_list(self.rootnode)
         for node in tree_as_list:
             # external stylesheets
             if isinstance(node, Element) and node.tag == "link" \
@@ -105,17 +105,24 @@ class Tab:
         self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)
+        #print_layout_tree(self.document)
+        #print_paint(self.display_list)
         elapsed_time = time.perf_counter() - start_time
         print(f"layout() {self.canvas.winfo_width()}x{self.canvas.winfo_height()} in{elapsed_time: .6f} seconds, {len(self.display_list)} nodes")
         self.text_height = max(self.document.height, 0)
         self.invalidate() 
         
-    def navigate(self, url: str, from_user_input: bool = False):       
-        url = self.url.resolve(url, from_user_input=from_user_input)
-        self.history.append(url)
-        self.forward_history = []
-        self.load(url)
-        self.scroll.pos = self.scroll.target_pos = 0
+    def navigate(self, url: str, from_user_input: bool = False):
+        if url[0] == "#":
+            self.jump_to_fragment(url[1:])
+            self.forward_history = []
+            self.history.append(url) # string instead of URL object means a fragment navigation, no need to call load()
+        else:
+            url_obj = self.url.resolve(url, from_user_input=from_user_input)
+            self.history.append(url_obj)
+            self.forward_history = []
+            self.load(url_obj)
+            self.scroll.pos = self.scroll.target_pos = 0
     
     def go_back(self):
         if self.can_go_back():
@@ -130,7 +137,13 @@ class Tab:
             self.load(forward)
         
     def can_go_back(self): return len(self.history) > 1
+
     def can_go_forward(self): return self.forward_history
+    
+    def jump_to_fragment(self, fragment: str):
+        # scan layout tree for node with a parent that contains the node with fragment in id attribute
+        tree_as_list = tree_to_list(self.document)
+        a = list(tree_as_list)
         
     def scrolldown(self):
         """Down arrow / Linux mouse wheel down"""
@@ -218,15 +231,31 @@ class Tab:
         self.dirty = True
         
     def get_element_at_coords(self, x, y):
-        objs = [obj for obj in tree_to_list(self.document, [])
-                if obj.x <= x < obj.x + obj.width
-                and obj.y <= y < obj.y + obj.height]
+        objs = []
+
+        for obj in tree_to_list(self.document):
+            if not isinstance(obj, (BlockLayout, AnonymousLayout)):
+                continue
+            
+            # layer 1: clicked on a block layout
+            if obj.x <= x < obj.x + obj.width and obj.y <= y < obj.y + obj.height:
+                objs.append(obj)
+            
+            # layer 2: clicked on a textfragment within a block layout's line boxes
+            frag = self.hit_test_block(obj, x, y)
+            if frag:
+                objs.append(frag.parent_layout)
         
         if not objs: return
-        deepest = objs[-1] # most recently painted object is probably the one clicked on
-        if isinstance(deepest, TextLayout):
-            elt = deepest.node
-        else:
-            elt = deepest.nodes[-1]
-       
-        return elt
+        deepest = objs[-1].node # most recently painted object is probably the one clicked on
+        return deepest
+    
+    def hit_test_block(self, block: Layout, x, y) -> TextFragment | None:
+        for line in block.line_boxes:
+            if y < line.y or y >= line.y + line.height:
+                continue
+            for fragment in line.children:
+                fx, fy, fw, fh = fragment.x, line.y, fragment.width, line.height
+                if fx <= x < fx+fw and fy <= y < fy+fh:
+                    return fragment
+        return None
