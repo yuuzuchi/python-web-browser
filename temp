@@ -1,0 +1,28 @@
+class BlockLayout(Layout):
+    def __init__(self, node: Element|Text, parent: Element|Text|None, previous: Element|Text|None):
+        super.__init__(node, None, None)
+        self.align = "left" # center or left
+        self.supersub = "normal" # superscript, subscript, or normal
+        self.pre = False
+        self.current_font = get_font()
+        self.cx = 0
+
+    def computed_style(self):
+        return self.node.style
+
+    def paint(self):
+        cmds = []
+        if isinstance(self.node, Element):
+            bgcolor = self.node.style.get("background-color", "transparent")
+            if bgcolor != "transparent":
+                rect = DrawRect(self.self_rect(), bgcolor)
+                cmds.append(rect)                    
+                    
+        return cmds
+    
+    def layout(self):
+        BlockFormattingContext(self).format()
+        
+
+
+    
