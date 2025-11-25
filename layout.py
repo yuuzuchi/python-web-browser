@@ -283,3 +283,13 @@ def tree_to_list(tree):
     yield tree
     for child in tree.children:
         yield from tree_to_list(child)
+
+def tree_to_fragment_list(tree: Layout):
+    if tree.line_boxes != []:
+        for line in tree.line_boxes:
+            yield from line.children
+            
+    if isinstance(tree, (DocumentLayout, BlockLayout, AnonymousLayout)):
+        for child in tree.children:
+            yield from tree_to_fragment_list(child)
+    

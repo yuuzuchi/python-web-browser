@@ -18,17 +18,22 @@ class URL:
     
     def __str__(self):
         try:
+            if self.scheme == "data":
+                return self.url_str
+            
             port_part = ":" + str(self.port)
             if self.scheme == "https" and self.port == 443:
                 port_part = ""
             if self.scheme == "http" and self.port == 80:
                 port_part = ""
-            return self.scheme + "://" + self.host + port_part + self.path
+            return f"{self.scheme}://{self.host}{port_part}{self.path}{"#" + self.fragment if self.fragment else ""}"
         except Exception:
             return "about:blank"
+        
+    def __repr__(self): return self.__str__()
     
     def _init_state(self, url: str) -> None:
-        self.url = url
+        self.url_str = url
         """Extracts parts of URL
         - **scheme** - data: OR (view-source):[http, https, file]
         - data accepts **chartype** [US-ASCII, UTF-8] and **MIME-TYPE** [text/plain, text/html]"""
@@ -63,7 +68,7 @@ class URL:
         
         # if no scheme provided (like google.com), auto prefix with https
         if "://" not in url:
-            self.url = url = "https://" + url
+            self.url_str = url = "https://" + url
         
         try:
             self.scheme, url = url.split("://", 1)
@@ -83,6 +88,11 @@ class URL:
                 self.host, self.port = self.host.split(":",1)
                 self.port = int(self.port)
                 
+            self.path, sep, fragment = self.path.partition("#")
+            self.fragment = None
+            if sep:
+                self.fragment = fragment
+                
             # close socket if host/port changed
             if self.s is not None:
                 print("closed")
@@ -93,7 +103,7 @@ class URL:
             self._init_state("about:blank")
 
     def request(self, headers: dict={}) -> str:
-        print("request:", self.url)
+        print("request:", self.url_str)
         """Performs a **GET** request using HTTP/1.1 connection: keep-alive
         \n Automatically performs up to 100 redirects"""
         if self.scheme == "blank":
@@ -138,7 +148,7 @@ class URL:
         self.s.send(request.encode("utf8"))
         response = self.s.makefile("rb", encoding="utf8", newline="\r\n")
         statusline = response.readline().decode("utf-8")
-        print(statusline.strip())
+        print("Statusline:", statusline.strip())
         version, status, explanation = statusline.split(" ", 2)
         
         response_headers = {}
@@ -190,40 +200,49 @@ class URL:
         return self.request()
 
     def resolve(self, url: str, from_user_input: bool = False):
-        def resolve_path_and_host(base):
-            # is full scheme: return as is
-            if "://" in base: return base
+        if url.startswith("#"): # fragment link, return URL with no_load_required flag
+            new_url = URL(str(self))
+            new_url.fragment = url[1:]
+            new_url.fragment_no_load_required = True
+            return new_url
 
-            if not base.startswith("/"):
-                # user typed shortened URL (e.g. "google.com") in address bar
-                if from_user_input: 
-                    if "." in base and " " not in base:
-                        return f"https://{base}"
-                    else:
-                        return f"http://frogfind.com/?q={base}"
-                    
-                dir, _ = self.path.rsplit("/", 1)
-                while base.startswith("../"):
-                    _, base = base.split("/", 1)
-                    if "/" in dir:
-                        dir, _ = dir.rsplit("/", 1)
-                base = dir + "/" + base
-                
-            # //host/path
-            if base.startswith("//"):
-                return f"{self.scheme}:{base}"
-
-            # absolute path starting with /
-            else:
-                return f"{self.scheme}://{self.host}:{str(self.port)}{base}"
-    
+        # if fragment is at end of link, remove and add back after resolving
+        url, frag_sep, frag = url.partition("#")
         base, sep, query = url.partition("?")
-        resolved = resolve_path_and_host(base)
+        resolved = self.resolve_path_and_host(base, from_user_input)
 
         if sep:
-            return URL(f"{resolved}?{query}")
+            return URL(f"{resolved}?{query}{"#" + frag if frag_sep else ""}")
+        return URL(f"{resolved}{"#" + frag if frag_sep else ""}")
+                          
+    def resolve_path_and_host(self, base, from_user_input):
+        # is full scheme: return as is
+        if "://" in base: return base
 
-        return URL(resolved)
+        if not base.startswith("/"):
+            # user typed shortened URL (e.g. "google.com") in address bar
+            if from_user_input: 
+                if "." in base and " " not in base:
+                    return f"https://{base}"
+                else:
+                    return f"http://frogfind.com/?q={base}"
+                
+            dir, _ = self.path.rsplit("/", 1)
+            while base.startswith("../"):
+                _, base = base.split("/", 1)
+                if "/" in dir:
+                    dir, _ = dir.rsplit("/", 1)
+            base = dir + "/" + base
+            
+        # //host/path
+        if base.startswith("//"):
+            return f"{self.scheme}:{base}"
+
+        # absolute path starting with /
+        else:
+            return f"{self.scheme}://{self.host}:{str(self.port)}{base}"
+            
+        
     
 def show(body: str) -> None: # print all text between tags
     in_tag = False

@@ -3,7 +3,7 @@ import time
 import tkinter
 from css_parser import CSSParser, print_rules, style
 from html_parser import Element, HTMLParser, Text, print_tree
-from layout import MARGINS, AnonymousLayout, BlockLayout, DocumentLayout, Layout, TextFragment, TextLayout, paint_tree, print_layout_tree, print_paint, tree_to_list
+from layout import MARGINS, AnonymousLayout, BlockLayout, DocumentLayout, Layout, TextFragment, TextLayout, paint_tree, print_layout_tree, print_paint, tree_to_fragment_list, tree_to_list
 from url import URL
 
 @dataclass
@@ -59,8 +59,13 @@ class Tab:
         
         self.dirty = False
     
-    def load(self, url: URL):
+    def load(self, url: URL, fragment_scroll_animation=False):
         self.url = url
+        
+        if hasattr(url, "fragment_no_load_required"): # clicked on fragment link
+            self.jump_to_fragment(url.fragment, scroll_animation=fragment_scroll_animation)
+            return
+        
         body = url.request()
         self.rootnode = HTMLParser(body).parse()
 
@@ -70,9 +75,7 @@ class Tab:
         tree_as_list = tree_to_list(self.rootnode)
         for node in tree_as_list:
             # external stylesheets
-            if isinstance(node, Element) and node.tag == "link" \
-                    and node.attributes.get("rel") == "stylesheet" \
-                    and "href" in node.attributes:
+            if isinstance(node, Element) and node.tag == "link" and node.attributes.get("rel") == "stylesheet" and "href" in node.attributes:
                 style_url = url.resolve(node.attributes['href'])
                 try:
                     body = style_url.request()
@@ -91,15 +94,18 @@ class Tab:
         
         self.document = DocumentLayout(self.rootnode, self.canvas)
         # conditional debug output controlled by CLI flags:
-        if self.options.get("t", False):
-            print(print_tree(self.rootnode, source=True))
-        if self.options.get("c", False):
-            print_rules(self.rules)
-            print(f"style() in{elapsed_time: .6f} seconds, {len(self.rules)} rules")
+        if self.options.get("t", False): print(print_tree(self.rootnode, source=True))
+        if self.options.get("c", False): print_rules(self.rules); print(f"style() in{elapsed_time: .6f} seconds, {len(self.rules)} rules")
+        
         print("\nCalculating layout...\n")
-
         self._layout()
-    
+
+        # jump to fragment if present
+        if url.fragment:
+            self.jump_to_fragment(url.fragment, scroll_animation=False)
+        else:
+            self.scroll.pos = self.scroll.target_pos = 0
+
     def _layout(self):
         start_time = time.perf_counter()
         self.document.layout()
@@ -112,23 +118,17 @@ class Tab:
         self.text_height = max(self.document.height, 0)
         self.invalidate() 
         
-    def navigate(self, url: str, from_user_input: bool = False):
-        if url[0] == "#":
-            self.jump_to_fragment(url[1:])
-            self.forward_history = []
-            self.history.append(url) # string instead of URL object means a fragment navigation, no need to call load()
-        else:
-            url_obj = self.url.resolve(url, from_user_input=from_user_input)
-            self.history.append(url_obj)
-            self.forward_history = []
-            self.load(url_obj)
-            self.scroll.pos = self.scroll.target_pos = 0
+    def navigate(self, url_str: str, from_user_input: bool = False):
+        url_obj = self.url.resolve(url_str, from_user_input=from_user_input)
+        self.history.append(url_obj)
+        self.forward_history = []
+        self.load(url_obj, fragment_scroll_animation=True)
     
     def go_back(self):
         if self.can_go_back():
             self.forward_history.append(self.history.pop())
             back = self.history[-1]
-            self.load(back)
+            self.load(back) # TODO: call resolve on back nav, so we get url.fragment_no_render_required 
             
     def go_forward(self):
         if self.can_go_forward():
@@ -140,10 +140,22 @@ class Tab:
 
     def can_go_forward(self): return self.forward_history
     
-    def jump_to_fragment(self, fragment: str):
-        # scan layout tree for node with a parent that contains the node with fragment in id attribute
-        tree_as_list = tree_to_list(self.document)
-        a = list(tree_as_list)
+    def jump_to_fragment(self, target_fragment: str, scroll_animation=True):
+        # scan layout tree for fragment with a parent layout that contains the node with fragment in id attribute
+        for fragment in tree_to_fragment_list(self.document):
+            layout = fragment.parent_layout
+            
+            # walk up layout tree until we reach a container element tag
+            while not isinstance(layout.node, Element):
+                layout = layout.parent
+                
+            if target_fragment in layout.node.attributes.get("id", ""):
+                print("oh")
+                self.scroll.target_pos = fragment.y
+                if not scroll_animation:
+                    self.scroll.pos = self.scroll.target_pos
+                self.invalidate()
+                break
         
     def scrolldown(self):
         """Down arrow / Linux mouse wheel down"""
@@ -167,12 +179,12 @@ class Tab:
         self.scroll.pos += (self.scroll.target_pos - self.scroll.pos) * 0.28
 
         # snap to 0
-        if abs(self.scroll.velocity) < 0.1:
+        # and still need to render as long as velocity is nonzero
+        if abs(self.scroll.velocity) < 0.1 and abs(self.scroll.target_pos - self.scroll.pos) < 0.5:
             self.scroll.velocity = 0
-        else:
-            self.invalidate() # still need to render as long as velocity is nonzero
-        if abs(self.scroll.target_pos - self.scroll.pos) < 0.5:
             self.scroll.pos = self.scroll.target_pos
+        else:
+            self.invalidate()
         
         # constrain
         self.scroll.pos = min(self.scroll.pos, self.text_height-height+MARGINS[3])
@@ -191,7 +203,7 @@ class Tab:
 
         # calculate x, y RELATIVE to scroll
         y += self.scroll.pos
-        elt = self.get_element_at_coords(x, y)
+        elt = self.get_layout_at_coords(x, y).node
         while elt:
             if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
                 print("Clicked: ", elt.attributes["href"])
@@ -200,7 +212,7 @@ class Tab:
             
     def on_middlemouse_down(self, x, y):
         y += self.scroll.pos
-        elt = self.get_element_at_coords(x, y)
+        elt = self.get_layout_at_coords(x, y).node
         while elt:
             if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
                 print("Open in new tab:", elt.attributes["href"])
@@ -230,7 +242,7 @@ class Tab:
     def invalidate(self):
         self.dirty = True
         
-    def get_element_at_coords(self, x, y):
+    def get_layout_at_coords(self, x, y):
         objs = []
 
         for obj in tree_to_list(self.document):
@@ -247,8 +259,7 @@ class Tab:
                 objs.append(frag.parent_layout)
         
         if not objs: return
-        deepest = objs[-1].node # most recently painted object is probably the one clicked on
-        return deepest
+        return objs[-1] # most recently painted object is probably the one clicked on
     
     def hit_test_block(self, block: Layout, x, y) -> TextFragment | None:
         for line in block.line_boxes:
