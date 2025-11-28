@@ -1,112 +1,170 @@
+from url import URL
+
 SELF_CLOSING_TAGS = [
-    "area", "base", "br", "col", "embed", "hr", "img", "input",
-    "link", "meta", "param", "source", "track", "wbr",
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
 ]
 
 HEAD_TAGS = [
-    "base", "basefont", "bgsound", "noscript",
-    "link", "meta", "title", "style", "script",
+    "base",
+    "basefont",
+    "bgsound",
+    "noscript",
+    "link",
+    "meta",
+    "title",
+    "style",
+    "script",
 ]
 
 FORMAT_TAGS = [
-    "b", "strong", "i", "em", "mark", "small", "big", "del", "ins", "sub", "sup"
+    "b",
+    "strong",
+    "i",
+    "em",
+    "mark",
+    "small",
+    "big",
+    "del",
+    "ins",
+    "sub",
+    "sup",
 ]
 
-class Text:
+LINK_TAGS = ["a", "area", "link"]
+
+
+class Node:
+    def __init__(self, parent):
+        self.parent: Element = parent
+
+
+class Text(Node):
     def __init__(self, text, parent):
+        super().__init__(parent)
         self.text = text
-        self.children = []
-        self.parent = parent
+        self.children: list[Node] = []
         self.style = {}
         self.classes = set()
-        
+
     def __repr__(self):
         return f"{self.text}, style={self.style}"
-    
-class Element:
+
+
+class Element(Node):
     def __init__(self, tag, attributes, parent, classes):
+        super().__init__(parent)
         self.tag = tag
         self.attributes = attributes
-        self.children = []
-        self.parent = parent
+        self.children: list[Node] = []
         self.style = {}
         self.classes = classes
-        
+
     def __repr__(self):
         return f"<{self.tag}>{str(self.attributes) if self.attributes else ""}, style={self.style}, class={self.classes}"
-            
+
+
+class Document:
+    def __init__(self, document_element: Element, url: URL):
+        self.document_element = document_element
+        document_element.owner_document = self
+        self.url = url
+
+
+def get_document(node: Node) -> Document:
+    while node.parent:
+        node = node.parent
+
+    if hasattr(node, "owner_document"):
+        return node.owner_document
+
+
 class HTMLParser:
-    def __init__(self, body):
+
+    def __init__(self, body: str, url: URL):
         self.body = body
         self.unfinished = []
+        self.url = url
 
-    def parse(self):
+    def parse(self) -> Document:
         text = []
         in_tag = False
-        in_attribute = False # quoted attributes may contain <, >, and space
-        quote = None # either " or ' or None
+        in_attribute = False  # quoted attributes may contain <, >, and space
+        quote = None  # either " or ' or None
         i = 0
         n = len(self.body)
-        
+
         while i < n:
             c = self.body[i]
-            
+
             # handle entities
             if c == "&" and not in_tag:
-                if self.body.startswith("lt;", i+1):
+                if self.body.startswith("lt;", i + 1):
                     text.append("<")
                     i += 4
                     continue
-                elif self.body.startswith("gt;", i+1):
+                elif self.body.startswith("gt;", i + 1):
                     text.append(">")
                     i += 4
                     continue
-                elif self.body.startswith("quot;", i+1):
+                elif self.body.startswith("quot;", i + 1):
                     text.append('"')
                     i += 6
                     continue
-                elif self.body.startswith("#39;", i+1):
+                elif self.body.startswith("#39;", i + 1):
                     text.append("'")
                     i += 5
                     continue
-                elif self.body.startswith("shy;", i+1):
-                    text.append("\u00AD")
+                elif self.body.startswith("shy;", i + 1):
+                    text.append("\u00ad")
                     i += 5
                     continue
                 text.append(c)
-                    
+
             elif c == "<" and not in_tag and not in_attribute:
                 # if comment, jump to end of comment
-                if self.body.startswith("!--", i+1):
+                if self.body.startswith("!--", i + 1):
                     i += 4
                     while i < n and not self.body.startswith("-->", i):
                         i += 1
                     i += 3
                     continue
-                
+
                 # flush buffer contents before tag
                 if text:
-                    self.add_text(''.join(text))
+                    self.add_text("".join(text))
                 in_tag = True
                 text = []
-                
+
             elif c == ">" and in_tag and not in_attribute:
                 in_tag = False
-                tag = ''.join(text)
+                tag = "".join(text)
                 self.add_tag(tag)
                 text = []
-                
+
                 # jump to matching </script> tag, add text to tag
                 if tag == "script":
-                    end = i+1
+                    end = i + 1
                     while end < n and not self.body.startswith("</script>", end):
                         end += 1
-                    script_text = self.body[i+1:end]
+                    script_text = self.body[i + 1 : end]
                     if script_text:
                         self.add_text(script_text)
-                    self.add_tag('/script')
+                    self.add_tag("/script")
                     i = end + 8
-                    
+
             # track enter or leaving quoted attribute
             elif in_tag and (c == '"' or c == "'"):
                 if not in_attribute:
@@ -115,36 +173,40 @@ class HTMLParser:
                 elif in_attribute and quote == c:
                     quote = None
                     in_attribute = False
-                text.append(c) # preserve the quotes!
-                
+                text.append(c)  # preserve the quotes!
+
             else:
                 text.append(c)
-                
+
             i += 1
-            
+
         if not in_tag and text:
-            self.add_text(''.join(text))
-        
-        return self.finish()
-    
+            self.add_text("".join(text))
+
+        return Document(self.finish(), self.url)
+
     def is_in_pre(self):
-        return any(isinstance(node, Element) and node.tag == "pre"
-                for node in self.unfinished)
-    
+        return any(
+            isinstance(node, Element) and node.tag == "pre" for node in self.unfinished
+        )
+
     def add_text(self, text):
-        if text.isspace() and not self.is_in_pre(): return
+        if text.isspace() and not self.is_in_pre():
+            return
         self.implicit_tags(None)
         # add text to last unfinished node
         parent = self.unfinished[-1]
         node = Text(text, parent)
         parent.children.append(node)
-    
+
     def add_tag(self, tag):
         tag, attributes, classes = self.get_attributes(tag)
-        if tag.startswith("!"): return
+        if tag.startswith("!"):
+            return
         self.implicit_tags(tag)
         if tag.startswith("/"):
-            if len(self.unfinished) == 1: return
+            if len(self.unfinished) == 1:
+                return
             if tag[1:] in FORMAT_TAGS:
                 # mis-nested formatting tags, e.g. <u> hi <b></u> Bold <i> both </b> italic </i>
                 # when encountering a closing formatting tag,
@@ -168,7 +230,7 @@ class HTMLParser:
             node = Element(tag, attributes, parent, classes)
             self.unfinished.append(node)
             # don't add to parent's children[] here, we only do that once it's closed
-    
+
     def finish(self):
         if not self.unfinished:
             self.implicit_tags(None)
@@ -179,7 +241,7 @@ class HTMLParser:
             parent.children.append(node)
         return self.unfinished.pop()
 
-    def get_attributes(self, text) -> tuple[str, dict, set]: 
+    def get_attributes(self, text) -> tuple[str, dict, set]:
         # returns (tag, attributes, classes)
         parts = text.split(None, 1)
         if len(parts) == 1:
@@ -189,26 +251,27 @@ class HTMLParser:
         attributes = {}
         n = len(rest)
         i = 0
+
         def skip_whitespace(i):
             while i < n and rest[i].isspace():
                 i += 1
             return i
-         
+
         while i < n:
             i = skip_whitespace(i)
             if i >= n:
                 break
-            
+
             # read attribute name up until space or =
             start = i
             while i < n and rest[i] not in "= ":
                 i += 1
             attr_name = rest[start:i]
             i = skip_whitespace(i)
-            
+
             # read value
             if i < n and rest[i] == "=":
-                i = skip_whitespace(i+1)
+                i = skip_whitespace(i + 1)
                 # quoted attribute, read until end quote
                 if i < n and rest[i] in ("'", '"'):
                     quote = rest[i]
@@ -223,21 +286,21 @@ class HTMLParser:
                     while i < n and not rest[i].isspace():
                         i += 1
                     attr_val = rest[start:i]
-            
+
             else:
                 attr_val = ""
 
             attributes[attr_name.casefold()] = attr_val
-            
+
         # get classes
         classes = attributes.get("class")
         if classes:
             classes = set(c.casefold() for c in classes.split(" "))
         else:
             classes = set()
-        
+
         return tag, attributes, classes
-        
+
     def implicit_tags(self, tag):
         while True:
             # if no tags yet, and tag isn't html, insert html
@@ -245,9 +308,9 @@ class HTMLParser:
                 if tag == "html":
                     break
                 self.add_tag("html")
-            
+
             top = self.unfinished[-1].tag
-            
+
             # if html, but encounter a tag that belongs to either head or body:
             if top == "html" and tag not in ("head", "body", "/html"):
                 if tag in HEAD_TAGS:
@@ -255,10 +318,15 @@ class HTMLParser:
                 else:
                     self.add_tag("body")
                 continue
-            
+
             # html + head, but encounter something that should be in body
-            if top == "head" and len(self.unfinished) >= 2 and self.unfinished[-2].tag == "html" and \
-                    tag not in HEAD_TAGS and tag != "/head":
+            if (
+                top == "head"
+                and len(self.unfinished) >= 2
+                and self.unfinished[-2].tag == "html"
+                and tag not in HEAD_TAGS
+                and tag != "/head"
+            ):
                 self.add_tag("/head")
                 continue
 
@@ -266,41 +334,50 @@ class HTMLParser:
             if top == "p" and tag == "p":
                 self.add_tag("/p")
                 continue
-            
+
             # nested lists: in a <li>, and see another <li>
             if top == "li" and tag == "li":
                 self.add_tag("/li")
                 continue
 
             break
-            
+
     def close_formatting(self, tag):
         reopen = []
-        
+
         # go backwards and finish any open format tags UNTIL we see a matching tag
         while True:
-            top = self.unfinished[-1].tag            
-            if top not in FORMAT_TAGS: return
-            
+            top = self.unfinished[-1].tag
+            if top not in FORMAT_TAGS:
+                return
+
             top = self.unfinished.pop()
             parent = self.unfinished[-1]
             parent.children.append(top)
-            
-            if top.tag == tag: break
-            reopen.append(top.tag) # don't need to re-open the actual requested tag
-        
+
+            if top.tag == tag:
+                break
+            reopen.append(top.tag)  # don't need to re-open the actual requested tag
+
         # reopen all of our tags, in reverse order
         while reopen:
             self.add_tag(reopen.pop())
-            
-def print_tree(node, source=False, indent=0): # source mode: print tag attributes and closing tags
+
+
+def print_tree(
+    node, source=False, indent=0
+):  # source mode: print tag attributes and closing tags
     spacing = "    " * indent
     if isinstance(node, Text):
         return f"'{node.text}'"
-    
-    if len(node.children) == 1 and isinstance(node.children[0], Text) and "\n" not in node.children[0].text:
+
+    if (
+        len(node.children) == 1
+        and isinstance(node.children[0], Text)
+        and "\n" not in node.children[0].text
+    ):
         return f"{spacing}<{node.tag}>{node.children[0].text}</{node.tag}>"
-    
+
     open = f"{spacing}<{node.tag} {node.attributes}>"
     inner = []
     for child in node.children:
@@ -309,16 +386,17 @@ def print_tree(node, source=False, indent=0): # source mode: print tag attribute
             if text:
                 inner.append(f"{'    '*(indent+1)}'{text}'")
         else:
-            inner.append(print_tree(child, source, indent+1))
+            inner.append(print_tree(child, source, indent + 1))
     close = f"{spacing}</{node.tag}>"
     if source:
         return "\n".join([open] + inner + [close])
     return "\n".join([open] + inner)
-    
+
 
 if __name__ == "__main__":
     from url import URL
     import sys
+
     url = "file:///home/yuzu/Documents/browser-dev/parsetest"
     if len(sys.argv) > 1:
         url = sys.argv[1]

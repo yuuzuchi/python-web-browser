@@ -2,14 +2,16 @@ import collections
 import tkinter.font
 import binascii
 
-# try: 
+# try:
 #     import gi
-#     gi.require_version('Pango', '1.0')
-#     gi.require_version('PangoCairo', '1.0')
+
+#     gi.require_version("Pango", "1.0")
+#     gi.require_version("PangoCairo", "1.0")
 #     from gi.repository import Pango, PangoCairo
 #     import cairo
+
 #     _PANGO_AVAILABLE = True
-# except ImportError:
+# except Exception:
 #     _PANGO_AVAILABLE = False
 _PANGO_AVAILABLE = False
 
@@ -30,7 +32,7 @@ def get_width(word, font):
 
 def hash16(s: str) -> int:
     return binascii.crc_hqx(s.encode(), 0)
-        
+
 def get_font(family="Segoe UI", size=16, style="roman", weight="normal"):
     key_int = (
         (min(int(size), 255) & 0xFF) |

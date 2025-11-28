@@ -2,19 +2,20 @@ import tkinter
 from tab import Tab
 from draw import *
 from url import URL
+from history import HistoryManager
+
 
 class Browser:
-    def __init__(self, options: dict={}):
+    def __init__(self, options: dict = {}):
         """Options:
         - rtl: bool, Right to Left text direction rendering
         - s <width>x<height>"""
         dimensions = [int(val) for val in options.get("s", "1280x720").split("x")]
-        print(dimensions)
         self.window = tkinter.Tk()
         self.window.configure(bg="white")
-        self.canvas = tkinter.Canvas(self.window,
-                                     width=dimensions[0], height=dimensions[1],
-                                     bg="white")
+        self.canvas = tkinter.Canvas(
+            self.window, width=dimensions[0], height=dimensions[1], bg="white"
+        )
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", self.resize_canvas)
         self.window.bind("<Key>", self.handle_key)
@@ -29,20 +30,28 @@ class Browser:
         self.window.bind("<Button-2>", self.on_middlemouse_down)
         self.window.bind("<B1-Motion>", self.on_mouse_drag)
         self.window.bind("<ButtonRelease-1>", self.on_mouse_up)
-        
+
         # keep CLI flags accessible to other methods
-        self.rtl = options.get("rtl", False) # currently broken sowwy
+        self.rtl = options.get("rtl", False)  # currently broken sowwy
         self.options = options
-        
-        self.drawing = False # running draw loop
+
+        self.drawing = False  # running draw loop
         self.active_tab = None
         self.tabs = []
-        
+        self.history_manager = HistoryManager()
+
         from chrome import Chrome
+
         self.chrome = Chrome(self)
 
     def new_tab(self, url: URL):
-        new_tab = Tab(url, self.canvas, self.canvas.winfo_height()-self.chrome.bottom, options=self.options)
+        new_tab = Tab(
+            url,
+            self.canvas,
+            self.canvas.winfo_height() - self.chrome.bottom,
+            self.history_manager,
+            options=self.options,
+        )
         # set tab's callbacks
         new_tab._on_title_change = self.rename_window
         new_tab._on_open_in_new_tab = self.new_tab
@@ -52,20 +61,20 @@ class Browser:
         self.set_tab(new_tab)
 
     def draw(self):
-        self.active_tab.tab_height = self.canvas.winfo_height()-self.chrome.bottom
+        self.active_tab.tab_height = self.canvas.winfo_height() - self.chrome.bottom
         self.active_tab.offset = self.chrome.bottom
-        
+
         self.active_tab.draw()
-        
+
         self.canvas.delete("scrollbar")
         self.draw_scrollbar()
 
         self.canvas.delete("chrome")
         for cmd in self.chrome.paint():
-            cmd.execute(0, self.canvas, tags=('chrome'))
-        
+            cmd.execute(0, self.canvas, tags=("chrome"))
+
     def start(self):
-        if self.drawing: 
+        if self.drawing:
             return
         self.drawing = True
         self.update()
@@ -75,51 +84,76 @@ class Browser:
             return
         self.draw()
         self.window.after(8, self.update)
-        
+
     def resize_canvas(self, e):
         self.canvas.config(width=e.width, height=e.height)
         self.active_tab._layout()
         self.chrome.resize()
-        
+
     def rename_window(self, title):
         self.window.title(title)
-        
+
     def set_tab(self, tab: Tab):
         self.active_tab = tab
-        self.active_tab.invalidate() # request one draw frame
+        self.active_tab.invalidate()  # request one draw frame
         if tab:
             self.rename_window(tab.title)
 
     def draw_scrollbar(self):
         if not self.active_tab:
-            return 
+            return
         # get scrollbar properties from current tab
         scroll = self.active_tab.scroll
         text_height = self.active_tab.text_height
-        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()-self.chrome.bottom
+        width, height = (
+            self.canvas.winfo_width(),
+            self.canvas.winfo_height() - self.chrome.bottom,
+        )
 
         # hide scrollbar if page fits in view
         if height >= text_height:
             return
-        
+
         self.canvas.create_rectangle(
-            width-scroll.bar_width, self.chrome.bottom, 
-            width, height+self.chrome.bottom, width=0, fill="#cccccc", tags=('scrollbar'))
-        
+            width - scroll.bar_width,
+            self.chrome.bottom,
+            width,
+            height + self.chrome.bottom,
+            width=0,
+            fill="#cccccc",
+            tags=("scrollbar"),
+        )
+
         scroll.bar_height = height**2 / text_height
         scroll.bar_y = (scroll.pos * height) / text_height
         self.canvas.create_rectangle(
-            width-scroll.bar_width, self.chrome.bottom + scroll.bar_y,
-            width, self.chrome.bottom + scroll.bar_y + scroll.bar_height, width=0, fill="#aaaaaa", tags=('scrollbar'))
-        
-    # event handlers    
-    
-    def scrolldown(self, e): self.active_tab.scrolldown()
-    def scrollup(self, e): self.active_tab.scrollup()
-    def scrolldelta(self, e): self.active_tab.scrolldelta(e.delta)
-    def on_mouse_drag(self, e): self.active_tab.handle_drag_scroll(e.x, e.y - self.chrome.bottom)
-    def on_mouse_up(self, e): self.active_tab.on_mouse_up()
-    def on_mouse_down(self, e): 
+            width - scroll.bar_width,
+            self.chrome.bottom + scroll.bar_y,
+            width,
+            self.chrome.bottom + scroll.bar_y + scroll.bar_height,
+            width=0,
+            fill="#aaaaaa",
+            tags=("scrollbar"),
+        )
+
+    # event handlers
+
+    def scrolldown(self, e):
+        self.active_tab.scrolldown()
+
+    def scrollup(self, e):
+        self.active_tab.scrollup()
+
+    def scrolldelta(self, e):
+        self.active_tab.scrolldelta(e.delta)
+
+    def on_mouse_drag(self, e):
+        self.active_tab.handle_drag_scroll(e.x, e.y - self.chrome.bottom)
+
+    def on_mouse_up(self, e):
+        self.active_tab.on_mouse_up()
+
+    def on_mouse_down(self, e):
         # check clicking on other tabs
         if e.y < self.chrome.bottom:
             self.chrome.click(e.x, e.y)
@@ -127,8 +161,8 @@ class Browser:
             # coords relative to tab
             tab_y = e.y - self.chrome.bottom
             self.active_tab.on_leftmouse_down(e.x, tab_y)
-            
-    def on_middlemouse_down(self, e): 
+
+    def on_middlemouse_down(self, e):
         # check clicking on tabs
         if e.y < self.chrome.tabbar_bottom:
             self.chrome.middleclick(e.x, e.y)
@@ -138,12 +172,18 @@ class Browser:
             self.active_tab.on_middlemouse_down(e.x, tab_y)
 
     def handle_key(self, e):
-        if len(e.char) == 0: return
-        if not (0x20 <= ord(e.char) < 0x7f): return
+        if len(e.char) == 0:
+            return
+        if not (0x20 <= ord(e.char) < 0x7F):
+            return
         self.chrome.keypress(e.char)
-            
-    def handle_enter(self, e): self.chrome.enter()
-    def handle_backspace(self, e): self.chrome.backspace()
+
+    def handle_enter(self, e):
+        self.chrome.enter()
+
+    def handle_backspace(self, e):
+        self.chrome.backspace()
+
 
 if __name__ == "__main__":
     import sys

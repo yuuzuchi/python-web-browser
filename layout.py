@@ -4,6 +4,7 @@ from typing import Iterator, Optional
 from draw import DrawRect, DrawText, Rect
 from font_cache import get_font
 from html_parser import Element, Text
+from url import URL
 
 BLOCK_ELEMENTS = [
     "html", "body", "article", "section", "nav", "aside",
@@ -36,19 +37,22 @@ class Layout:
         return self.node.style if self.node else None
 
 class DocumentLayout(Layout):
+
     def __init__(self, node, canvas: tkinter.Canvas):
         super().__init__(node, None, None)
         self.canvas = canvas
-    
+
     def layout(self):
         child = build_layout_for_node(self.node, self, None) # <html> node
         self.children = [child]
         self.width = self.canvas.winfo_width() - 2*MARGINS[0] - MARGINS[4]
         self.x = MARGINS[0]
         self.y = MARGINS[1]
-        child.layout()
-        self.height = child.height
         
+        from formatting_context import BlockFormattingContext
+        BlockFormattingContext(child).format()
+        self.height = child.height
+
     def paint(self):
         return []
 
@@ -60,7 +64,7 @@ class BlockLayout(Layout):
         self.pre = False
         self.current_font = get_font()
         self.cx = 0
-        
+
     def __repr__(self):
         tag = getattr(self.node, "tag", None)
         kind = tag if tag is not None else "text-block"
@@ -73,33 +77,25 @@ class BlockLayout(Layout):
             if bgcolor != "transparent":
                 rect = DrawRect(self.self_rect(), bgcolor)
                 cmds.append(rect)                    
-                    
+
         return cmds
-    
+
     def has_inline_children(self):
         for child in self.children:
             if isinstance(child, InlineElementLayout):
                 return True
         return False
-        
-    def layout(self):
-        from formatting_context import BlockFormattingContext
-        BlockFormattingContext(self).format()
 
 class AnonymousLayout(Layout):
     def __init__(self, parent, previous):
         super().__init__(None, parent, previous)
-        
-    def layout(self): 
-        from formatting_context import BlockFormattingContext
-        BlockFormattingContext(self).format()
-        
+
     def computed_style(self):
         return self.parent.node.style
 
     def paint(self):
         return []
-        
+
     def has_inline_children(self):
         return self.children != [] # should in theory always be True
 
@@ -120,13 +116,6 @@ class TextLayout(Layout):
     def __init__(self, node, text_run, parent):
         super().__init__(node, parent, None)
         self.text_run = text_run
-        
-    def layout(self):
-        if self.previous:
-            self.x = self.previous.x + self.previous.width
-        else:
-            self.x = self.parent.x
-        self.height = self.font.cached_metrics["linespace"]
 
     def __repr__(self):
         txt = (self.text_run[:16] + "...") if self.text_run and len(self.text_run) > 16 else (self.text_run or "")
@@ -145,7 +134,7 @@ class TextFragment:
     def paint(self):
         if self.text:
             return [DrawText(self.x, self.y, self.text, self.width, self.font, self.color)]
-        
+
 class BreakLayout(Layout):
     def __init__(self, node: Element, parent):
         super().__init__(node, parent, None)
@@ -206,7 +195,7 @@ def build_layout_for_node(node: Element|Text, parent, previous):
         box = InlineElementLayout(node, parent)
         box.children = build_inline_layouts([node], box)
         return box
-        
+
 def build_inline_layouts(nodes: list[Element|Text], parent) -> list[Layout]:
     res = []
     for node in nodes:
@@ -225,7 +214,7 @@ def build_inline_layouts(nodes: list[Element|Text], parent) -> list[Layout]:
             textbox = TextLayout(node, node.text, parent)
             res.append(textbox)
     return res
-            
+
 # given the children of a Block type Layout (BlockLayout or AnonymousLayout) that contains inline children,
 # walk children in preorder dfs traversal
 def flatten(layouts: list[Layout]) -> Iterator[TextLayout | BreakLayout]:
@@ -242,7 +231,7 @@ def flatten(layouts: list[Layout]) -> Iterator[TextLayout | BreakLayout]:
         
         else: # children somehow contain block layout
             assert False
-        
+
 def paint_tree(layout_object: Layout, display_list):
     display_list.extend(layout_object.paint())
     
@@ -253,7 +242,7 @@ def paint_tree(layout_object: Layout, display_list):
     for child in layout_object.children:
         if isinstance(child, (DocumentLayout, BlockLayout, AnonymousLayout)):
             paint_tree(child, display_list)
-            
+
 def print_layout_tree(layout_object: Layout):
     def _print(node: Layout, depth: int):
         indent = ".." * depth
@@ -266,7 +255,7 @@ def print_layout_tree(layout_object: Layout):
             _print(child, depth + 1)
 
     _print(layout_object, 0)
-    
+
 # only text fragments can be painted
 def paint_inline(line_boxes, display_list):
     for line in line_boxes:
@@ -274,7 +263,7 @@ def paint_inline(line_boxes, display_list):
             paint = text_frag.paint()
             if paint:
                 display_list.extend(paint)
-            
+
 def print_paint(display_list):
     for cmd in display_list:
         print(cmd)
@@ -292,4 +281,3 @@ def tree_to_fragment_list(tree: Layout):
     if isinstance(tree, (DocumentLayout, BlockLayout, AnonymousLayout)):
         for child in tree.children:
             yield from tree_to_fragment_list(child)
-    
