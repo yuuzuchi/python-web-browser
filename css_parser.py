@@ -305,7 +305,7 @@ class Rule:
 
 class CSSParser:
 
-    def __init__(self, s, history_manager: HistoryManager):
+    def __init__(self, s, history_manager: HistoryManager, tok_iter=None):
         self.s = s
         self.i = 0
         self.history_manager = history_manager

@@ -2,10 +2,43 @@ html {
   white-space: normal;
 }
 
-html, body, article, section, nav, aside, h1, h2, h3, h4, h5, h6, 
-hgroup, header, footer, address, p, hr, pre, blockquote, 
-ol, ul, menu, li, dl, dt, dd, figure, figcaption, main, 
-div, table, form, fieldset, legend, details, summary {
+html,
+body,
+article,
+section,
+nav,
+aside,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+hgroup,
+header,
+footer,
+address,
+p,
+hr,
+pre,
+blockquote,
+ol,
+ul,
+menu,
+li,
+dl,
+dt,
+dd,
+figure,
+figcaption,
+main,
+div,
+table,
+form,
+fieldset,
+legend,
+details,
+summary {
   display: block;
 }
 
@@ -19,11 +52,17 @@ a {
   color: blue;
 }
 
-i, em {
+a:visited {
+  color: purple;
+}
+
+i,
+em {
   font-style: italic;
 }
 
-b, strong {
+b,
+strong {
   font-weight: bold;
 }
 
@@ -47,6 +86,9 @@ h3 {
   font-size: 117%;
 }
 
+h3 {
+  font-size: 110%
+}
 h4 {
   font-size: 100%;
 }
@@ -59,8 +101,10 @@ h6 {
   font-size: 67%;
 }
 
+#34:has(h1),
+wow.meow {
+  color: blue;
+}
 
-
-
-
-
+"\" ok"
+\0041 hi
