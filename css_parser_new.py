@@ -171,15 +171,6 @@ class CSSSyntaxParser:
 
             # style_rule = StyleRule(selector_list, contents)
 
-    # def parse(self, inp) -> list[Rule]:
-    #     # parses *something* that may or may not be valid CSS grammar.
-    #     # *something* is e.g. rgb(255 0 0), or 10px/5px, which is <color> and <ratio>, respectively
-    #     # returns the parsed result if valid, or failure if not.
-    #     rules = []
-    #     self.init_state(inp)
-    #     res = self.parse_component_value_list(self.input)
-    #     # match res against grammar ? return res : return failure
-
     def parse_comma_separated_list(self, inp) -> list:
         # parse(), but a malformed CSS item in a comma separated list will be handled correctly.
         self.init_state(inp)
@@ -372,7 +363,7 @@ class CSSSyntaxParser:
         while True:
             tok = self.consume()
             match tok.type:
-                case Tok.WHITESPACE, Tok.SEMICOLON:
+                case Tok.WHITESPACE | Tok.SEMICOLON:
                     pass
                 case Tok.EOF:
                     decls.extend(rules)
@@ -408,7 +399,7 @@ class CSSSyntaxParser:
         while True:
             tok = self.consume()
             match tok.type:
-                case Tok.WHITESPACE, Tok.SEMICOLON:
+                case Tok.WHITESPACE | Tok.SEMICOLON:
                     pass
                 case Tok.EOF:
                     return decls
@@ -446,7 +437,8 @@ class CSSSyntaxParser:
             declaration.val.append(self.consume_component_value())
 
         # if last two declaration.val non whitespace are DELIM(!), IDENT("important"):
-        for i in range(len(declaration.val) - 1, -1, -1):
+        i = len(declaration.val) - 1
+        while i >= 0:
             cur = declaration.val[i]
             if i > 0 and cur.type == Tok.IDENT and cur.val.lower() == "important":
                 prev = declaration.val[i - 1]
@@ -454,10 +446,12 @@ class CSSSyntaxParser:
                     declaration.important = True
                     declaration.val.pop(i)
                     declaration.val.pop(i - 1)
+                    i -= 1
                 else:  # no whitespace allowed between '!' and 'important'
                     break
             elif cur.type != Tok.WHITESPACE:
                 break
+            i -= 1
 
         # trim trailing whitespace from declaration.val
         while declaration.val[-1].type == Tok.WHITESPACE:
