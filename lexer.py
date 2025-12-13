@@ -59,30 +59,43 @@ def is_hex_digit(c: str) -> bool:
     return c.isdigit() or c in "abcdefABCDEF"
 
 
-@dataclass
+@dataclass(eq=True)
 class Token:
-    tok_type: Tok
+    type: Tok
     val: Optional[Any] = ""
     hash_type: Optional[Hash] = Hash.UNRESTRICTED
     num_type: Optional[Num] = Num.INTEGER
     dim_unit: Optional[str] = ""
 
     def __repr__(self):
-        return f"<tok.{self.tok_type.name} val='{self.val}'>"
+        return f"<tok.{self.type.name} val='{self.val}'>"
+
+    def mirror(self):
+        assert self.type in [Tok.LBRAC, Tok.LBRACE, Tok.LPAREN]
+        match self.type:
+            case Tok.LBRAC:
+                return Token(Tok.RBRAC)
+            case Tok.LBRACE:
+                return Token(Tok.RBRACE)
+            case Tok.LPAREN:
+                return Token(Tok.RPAREN)
+            case _:
+                pass
 
 
 class Lexer:
-    def __init__(self, s: str, history_manager: HistoryManager):
+
+    def __init__(self, s: str):
         self.s = s
         self.i = 0
-        self.history_manager = history_manager
 
-    def parse(self) -> Generator[Token]:
+    def parse(self) -> list[Token]:
+        res = []
         while True:
             tok = self.consume()
-            yield tok
-            if tok.tok_type == Tok.EOF:
-                return
+            res.append(tok)
+            if tok.type == Tok.EOF:
+                return res
 
     def next_char(self) -> str:
         if self.i < len(self.s):
@@ -91,12 +104,12 @@ class Lexer:
         return None
 
     def peek(self, n, length=1) -> str:
-        if 0 < self.i + n < len(self.s):
+        if 0 <= self.i + n < len(self.s):
             return self.s[self.i + n : self.i + n + length]
 
-    def parse_error(self):
+    def tokenize_error(self):
         print(
-            f"Parse Error at idx {self.i}:\n{self.s[self.i-15:self.i]}>>>{self.s[self.i]}<<<{self.s[self.i+1:self.i+15]}"
+            f"Tokenization Error at idx {self.i}:\n{self.s[self.i-15:self.i]}>>>{self.s[self.i]}<<<{self.s[self.i+1:self.i+15]}"
         )
 
     # https://www.w3.org/TR/css-syntax-3/#consume-token
@@ -178,7 +191,7 @@ class Lexer:
             if self.is_valid_escape():
                 self.reconsume()
                 return self.consume_ident()
-            self.parse_error()
+            self.tokenize_error()
             return Token(Tok.DELIM, c)
 
         if c == "]":
@@ -212,10 +225,10 @@ class Lexer:
             if c == ending_quote:
                 return Token(Tok.STRING, "".join(res))
             if c == None:
-                self.parse_error()
+                self.tokenize_error()
                 return Token(Tok.STRING, "".join(res))
             if c == "\n":
-                self.parse_error()
+                self.tokenize_error()
                 self.reconsume()
                 return Token(Tok.BAD_STRING)
             if c == "\\":
@@ -233,7 +246,10 @@ class Lexer:
             while self.peek(0, length=2) not in ["*/", None]:
                 self.next_char()
             if self.peek(0) == None:
-                self.parse_error()
+                self.tokenize_error()
+            self.next_char()
+            self.next_char()
+            self.consume_comment()
 
     def is_valid_escape(self, offset=0) -> bool:
         if self.peek(-1 + offset) != "\\" or self.peek(offset) == "\n":
@@ -282,7 +298,7 @@ class Lexer:
 
     def consume_ident(self) -> Token:
         string = self.consume_ident_seq()
-        if string.lower() == "url" and self.peek(1) == "(":
+        if string.lower() == "url" and self.peek(0) == "(":
             self.next_char()
             while self.peek(0, length=2).isspace():
                 self.next_char()
@@ -303,13 +319,13 @@ class Lexer:
             if c == ")":
                 return url_tok
             if c == None:
-                self.parse_error()
+                self.tokenize_error()
                 return url_tok
             if c.isspace():
                 self.consume_whitespace()
                 if self.peek(1) in [None, ")"]:
                     if self.peek(1) == None:
-                        self.parse_error()
+                        self.tokenize_error()
                     self.next_char()
                     return url_tok
                 else:
@@ -323,7 +339,7 @@ class Lexer:
                 if self.is_valid_escape():
                     url_tok.val += self.consume_escape()
                 else:
-                    self.parse_error()
+                    self.tokenize_error()
                     self.consume_bad_url_remnants()
                     return Token(Tok.BAD_URL)
             else:
@@ -395,7 +411,7 @@ class Lexer:
                 return chr(0xDFFF)
             return chr(hex_num)
         if c == None:
-            self.parse_error()
+            self.tokenize_error()
             return chr(0xDFFF)
 
         return c
@@ -453,8 +469,14 @@ class Lexer:
 
 
 if __name__ == "__main__":
-    with open("browser.css", "r") as f:
-        lexer = Lexer(f.read(), HistoryManager())
+    import sys
+
+    f = "./browser.css"
+    if len(sys.argv) > 1:
+        f = sys.argv[1]
+
+    with open(f, "r") as file:
+        lexer = Lexer(file.read())
 
         for token in lexer.parse():
             print(token)

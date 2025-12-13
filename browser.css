@@ -100,11 +100,3 @@ h5 {
 h6 {
   font-size: 67%;
 }
-
-#34:has(h1),
-wow.meow {
-  color: blue;
-}
-
-"\" ok"
-\0041 hi

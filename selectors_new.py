@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 from typing import Any, Optional
 from history import HistoryManager
@@ -38,21 +38,33 @@ class Combinator(Enum):
     CHILD = ">"
     NEXT_SIBLING = "+"
     SUBSEQUENT_SIBLING = "~"
+    COLUMN = "||"
 
 
 class SimpleSelector:
     pass
+
+# sum a given list of specificity tuples
+def add_specs(specs):
+    a = b = c = 0
+    for sa, sb, sc in specs:
+        a += sa
+        b += sb
+        c += sc
+    return (a, b, c)
 
 
 @dataclass
 class Selector:
     """(num_ids, num_classes, num_tags) - for priority calculation"""
 
-    specificity: tuple[int, int, int]
+    specificity: tuple[int, int, int] = field(init=False)
+    invalid: bool = field(default=False, init=False)
 
 
 @dataclass
 class UniversalSelector(Selector, SimpleSelector):
+    namespace: Optional[str] = None
 
     def __post_init__(self):
         self.specificity = (0, 0, 0)
@@ -62,8 +74,9 @@ class UniversalSelector(Selector, SimpleSelector):
 
 
 @dataclass
-class TagSelector(Selector, SimpleSelector):
+class TypeSelector(Selector, SimpleSelector):
     tag: str
+    namespace: Optional[str] = None
 
     def __post_init__(self):
         self.specificity = (0, 0, 1)
@@ -77,12 +90,17 @@ class AttributeSelector(Selector, SimpleSelector):
     att: str
     oper: AttributeMatch
     val: Optional[str] = None
+    modifier: Optional[str] = None
+    namespace: Optional[str] = None
 
     def __post_init__(self):
         self.specificity = (0, 1, 0)
 
     def __str__(self):
-        return f"[{self.att}{self.oper}{self.val if self.val else " "}]"
+        oper = f" {self.oper.value} " if self.oper != AttributeMatch.HAS_ATTR else ""
+        modifier = f" {self.modifier}" if self.modifier else ""
+        val = self.val if self.val else ""
+        return f"[{self.att}{oper}{val}{modifier}]"
 
 
 @dataclass
@@ -98,24 +116,26 @@ class IDSelector(Selector, SimpleSelector):
 
 @dataclass
 class ClassSelector(Selector, SimpleSelector):
-    _class: str
+    class_: str
 
     def __post_init__(self):
         self.specificity = (0, 1, 0)
 
     def __str__(self):
-        return f".{self._class}"
+        return f".{self.class_}"
 
 
 @dataclass
 class PseudoClassSelector(Selector, SimpleSelector):
-    _type: PseudoClass
-    args: Optional[Any]
+    name: str
+    args: Optional[Any]  # only if function type
+    type: PseudoClass | None = field(init=False)
 
     # https://www.w3.org/TR/selectors-4/#specificity-rules
     def __post_init__(self):
+        self.type = PseudoClass._value2member_map_.get(self.name)
         specificity = (0, 1, 0)
-        match self._type:
+        match self.type:
             case PseudoClass.IS, PseudoClass.NOT, PseudoClass.HAS:
                 if self.args:
                     specificity = max(s.specificity for s in self.args)
@@ -130,22 +150,37 @@ class PseudoClassSelector(Selector, SimpleSelector):
 
     def __str__(self):
         args_str = f"({", ".join(str(s) for s in self.args)})" if self.args else ""
-        return f":{self._type}{args_str}"
+        return f":{self.type}{args_str}"
+
+
+@dataclass
+class PseudoElement:
+    name: str
+    args: Optional[Any]  # only if function type
+    pseudo_classes: list[PseudoClassSelector]
+
+    def pseudo_classes_specificity(self):
+        return add_specs(s.specificity for s in self.pseudo_classes)
 
 
 @dataclass
 class CompoundSelector(Selector):  # Similar to SelectorSequence in the book
+    # first selector in sequence must be of type TypeSelector or UniversalSelector
+    selectors: list[SimpleSelector]
+    pseudo_element_chain: list[PseudoElement]
+
     # combinator is placed here instead of ComplexSelector
     # has no impact on a lone CompoundSelector, only when within ComplexSelector
-    # applies right side of our compound selector, so for example
-    # ComplexSelector = [ThisCompoundSelector combinator] OtherCompoundSelector
-    selectors: list[SimpleSelector]
+    # applies left side of our compound selector, so for example
+    # ComplexSelector = OtherCompoundSelector [combinator ThisCompoundSelector]
     combinator: Combinator = Combinator.NONE
 
     def __post_init__(self):
-        self.specificity = tuple(
-            sum(values) for values in zip(*(s.specificity for s in self.selectors))
+        selectors_specificity = add_specs(s.specificity for s in self.selectors)
+        pseudo_specificity = add_specs(
+            s.pseudo_classes_specificity() for s in self.pseudo_element_chain
         )
+        self.specificity = add_specs([selectors_specificity, pseudo_specificity])
 
     def __str__(self):
         return "".join(str(selector) for selector in self.selectors)
@@ -178,7 +213,7 @@ class SelectorMatcher:
         match selector:
             case UniversalSelector():
                 return True
-            case TagSelector(tag=tag):
+            case TypeSelector(tag=tag):
                 return node.tag == tag
             case AttributeSelector():
                 return self._matches_attribute(selector, Element)
@@ -217,7 +252,7 @@ class SelectorMatcher:
                 raise f"{selector.oper} not a valid attribute match operation for {str(selector)}!"
 
     def _matches_pseudoclass(self, selector: PseudoClassSelector, node: Element):
-        match selector._type:
+        match selector.type:
             case PseudoClass.IS, PseudoClass.WHERE:
                 return selector.args != [] and any(
                     s.matches(node) for s in selector.args
@@ -234,10 +269,11 @@ class SelectorMatcher:
                     resolved_url = document.url.resolve(node.attribute["href"])
                     return self.history_manager.has_url(resolved_url)
             case _:
-                raise f"{selector._type} not a valid selector type for {str(selector)}!"
+                raise f"{selector.type} not a valid selector type for {str(selector)}!"
 
     def _matches_complex(self, selector: ComplexSelector, node: Element):
-        def recurse(elem: Element, selector_idx: int) -> bool:
+
+        def recurse(elem: Element, idx: int) -> bool:
             # match right to left
             # example: div ~ article p
 
@@ -253,29 +289,29 @@ class SelectorMatcher:
             # match article:    recurse(1, elem):                   oper =  , article matched at elem.parent.parent, continue
             # match div:        recurse(0, elem.parent.parent):     oper = ~, div matched at elem.parent.children[:cur_idx], continue
             # match -1: return True
-            if selector_idx < 0:
+            if idx < 0:
                 return True
 
-            s = selector.compound_selectors[selector_idx]
+            s = selector.compound_selectors[idx]
 
             match s.combinator:
                 case Combinator.NONE:
                     if not self.matches(s, elem):
                         return False
-                    return recurse(selector_idx - 1, elem)
+                    return recurse(elem, idx - 1)
 
                 case Combinator.DESCENDANT:
                     cur = elem.parent
                     while cur:
                         if self.matches(cur, elem):
-                            return recurse(selector_idx - 1, cur)
+                            return recurse(idx - 1, cur)
                         s = s.parent
                     return False
 
                 case Combinator.CHILD:
                     if not self.matches(s, elem.parent):
                         return False
-                    return recurse(selector_idx - 1, s.parent)
+                    return recurse(idx - 1, s.parent)
 
                 case Combinator.NEXT_SIBLING:
                     siblings = elem.parent.children
@@ -287,7 +323,7 @@ class SelectorMatcher:
                         for sibling in siblings[:sibling_elem_idx]
                     ):
                         return False
-                    return recurse(selector_idx - 1, s)
+                    return recurse(idx - 1, s)
 
                 case Combinator.SUBSEQUENT_SIBLING:
                     siblings = elem.parent.children
@@ -296,9 +332,9 @@ class SelectorMatcher:
                         return False
                     if not self.matches(s, siblings[sibling_elem_idx - 1]):
                         return False
-                    return recurse(selector_idx - 1, cur)
+                    return recurse(idx - 1, cur)
 
-        return recurse(node, len(selector.compound_selectors))
+        return recurse(node, len(selector.compound_selectors) - 1)
 
     # =========== Specific Pseudo Class Selector Matching =========== #
 
