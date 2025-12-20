@@ -347,3 +347,27 @@ class SelectorMatcher:
                     return True
             if self._matches_has(selector, child):
                 return True
+
+
+def rightmost_selector(selector: Selector) -> Selector:
+    if not isinstance(selector, (CompoundSelector, ComplexSelector)):
+        return selector
+
+    elif isinstance(selector, CompoundSelector):
+        for i in range(len(selector.selectors)-1, -1, -1):
+            # only HAS and EXACT MATCH attribute selectors should be indexed for performance reasons
+            if isinstance(selector.selectors[i], AttributeSelector):
+                if selector.selectors[i].oper == AttributeMatch.HAS_ATTR or selector.selectors[-1].oper == AttributeMatch.EXACT_MATCH:
+                    return selector.selectors[i]
+            return selector.selectors[i]
+
+    return rightmost_selector(selector.compound_selectors[-1])
+
+
+            
+            
+
+            
+
+
+    

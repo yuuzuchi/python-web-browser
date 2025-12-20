@@ -2,10 +2,11 @@ from dataclasses import dataclass, field
 import math
 from typing import Optional
 from enums import Keyword
-from css_property import Property
+from css.color import Color
+from css.property import Property
 from url import URL
 
-from lexer import Num, Tok, Token
+from css.lexer import Num, Tok, Token
 
 
 class StyleValue:
@@ -27,6 +28,30 @@ class KeywordValue(StyleValue):
 
     def is_css_wide(self) -> bool:
         return self.keyword in (Keyword.INITIAL, Keyword.INHERIT, Keyword.UNSET, Keyword.REVERT, Keyword.REVERT_LAYER)
+
+    def is_color(self) -> bool:
+        return self.keyword in (
+            Keyword.ACCENTCOLOR,
+            Keyword.ACCENTCOLORTEXT,
+            Keyword.ACTIVETEXT,
+            Keyword.BUTTONBORDER,
+            Keyword.BUTTONFACE,
+            Keyword.BUTTONTEXT,
+            Keyword.CANVAS,
+            Keyword.CANVASTEXT,
+            Keyword.FIELD,
+            Keyword.FIELDTEXT,
+            Keyword.GRAYTEXT,
+            Keyword.HIGHLIGHT,
+            Keyword.HIGHLIGHTTEXT,
+            Keyword.LINKTEXT,
+            Keyword.MARK,
+            Keyword.MARKTEXT,
+            Keyword.SELECTEDITEM,
+            Keyword.SELECTEDITEMTEXT,
+            Keyword.VISITEDTEXT,
+            Keyword.CURRENTCOLOR,
+        )
 
 
 @dataclass
@@ -78,6 +103,11 @@ class NumberValue(StyleValue):
 @dataclass
 class CalculatedValue(StyleValue):
     pass
+
+
+@dataclass
+class ColorValue(StyleValue):
+    color: Color
 
 
 @dataclass

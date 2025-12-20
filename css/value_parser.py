@@ -1,5 +1,6 @@
-from css_style_values import *
-from css_token_stream import CSSTokenStream
+from css.style_values import Color
+from css.style_values import *
+from css.token_stream import CSSTokenStream
 from enums import Property, ValueType
 
 
@@ -94,6 +95,27 @@ class ValueParser:
         if tok.type == Tok.DIMENSION and tok.dim_unit in ("deg", "grad", "rad", "turn"):
             self.stream.consume()
             return AngleValue(tok.val, tok.dim_unit)
+
+    def parse_color_value(self) -> ColorValue | KeywordValue:
+        # <color-base> | <system-color> | currentColor
+        tok = self.stream.peek()
+        if tok.type == Tok.IDENT:
+            # <color-base>: <named-color>
+            if color := Color.from_str(tok.val):
+                self.stream.consume()
+                return ColorValue(color)
+
+            # <system-color> | currentColor
+            keyword = KeywordValue(tok.val)
+            if keyword.is_color():
+                self.stream.consume()
+                return keyword
+
+        # <color-base>: <hex-color>
+        elif tok.type == Tok.HASH:
+            color = Color.from_hash_str(tok.val.val)
+            self.stream.consume()
+            return ColorValue(color)
 
     def parse_integer_value(self) -> IntegerValue:
         tok = self.stream.peek()

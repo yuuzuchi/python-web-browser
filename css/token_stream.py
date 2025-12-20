@@ -1,5 +1,4 @@
-from lexer import Tok, Token
-from log import log
+from css.lexer import Tok, Token
 
 
 class CSSTokenStream:
@@ -31,7 +30,6 @@ class CSSTokenStream:
     def consume(self) -> Token:
         self.cur = self.tokens[self.cursor]
         self.next()
-        log(self.cur)
         return self.cur
 
     def accept(self, type: Tok = None, val=None) -> Token | bool:

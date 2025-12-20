@@ -1,14 +1,23 @@
 # https://www.w3.org/TR/css-syntax-3/#parse-grammar
 import collections
-from typing import Any, Optional
-from dataclasses import dataclass, field
-import typing
-from css_components import AtRule, Component, Declaration, Function, QualifiedRule, Rule, SimpleBlock, Stylesheet
+from typing import Any
+from css.components import (
+    AtRule,
+    Component,
+    Declaration,
+    Function,
+    QualifiedRule,
+    Rule,
+    SimpleBlock,
+    Stylesheet,
+)
+from css.property_parser import PropertyParser
+from enums import Property
 from log import log, warn, err, set_debug
-from css_token_stream import CSSTokenStream
+from css.token_stream import CSSTokenStream
 
-from lexer import Lexer, Tok, Token
-from selectors_new import (
+from css.lexer import Lexer, Tok, Token
+from css.selectors import (
     AttributeMatch,
     AttributeSelector,
     Selector,
@@ -22,10 +31,39 @@ from selectors_new import (
     SimpleSelector,
     TypeSelector,
     UniversalSelector,
+    rightmost_selector,
 )
 
 
+def build_index(selector: Selector, rule: Rule, index: list[dict[set]]) -> None:
+    # builds an index of rightmost selector -> rule
+    # index is as follows:
+    # index = [id_dict, class_dict, type_dict, attr_dict, attr_eq_dict, universal_dict]
+    # ex id_dict: {"a": {rule1, rule2, rule3}}
+    # modifies given index in place
+    if not len(index) == 6:
+        index = [collections.defaultdict(set())] * 6
 
+    rightmost = rightmost_selector(selector)
+    if isinstance(rightmost, IDSelector):
+        index[0][rightmost.ID].add(rule)
+    elif isinstance(rightmost, ClassSelector):
+        index[1][rightmost.class_].add(rule)
+    elif isinstance(rightmost, TypeSelector):
+        index[2][rightmost.tag].add(rule)
+    elif isinstance(rightmost, AttributeSelector):
+        if rightmost.oper == AttributeMatch.HAS_ATTR:
+            index[3][rightmost.att].add(rule)
+        elif rightmost.oper == AttributeMatch.EXACT_MATCH:
+            index[4][(rightmost.att, rightmost.val)].add(rule)
+    elif isinstance(rightmost, UniversalSelector):
+        index[5]["*"].add(rule)
+
+
+class StyleRule:
+    def __init__(self, selector_list: list[Selector], contents):
+        self.selector_list = selector_list
+        self.contents = contents
 
 
 class CSSSyntaxParser:
@@ -75,14 +113,15 @@ class CSSSyntaxParser:
     # ======================== Parser Entry Points ======================== #
 
     # https://www.w3.org/TR/css-syntax-3/#css-stylesheets
-    def parse_css_stylesheet(self, inp):  # -> list[StyleRule]:
+    def parse_css_stylesheet(self, inp) -> list[StyleRule]:
         self.init_state(inp)
         stylesheet = self.parse_stylesheet(self.input)
 
         # replace each qualified rule with a StyleRule
         declaration_parser = CSSSyntaxParser()
-        value_parser = None
+        out = []
         for i in range(len(stylesheet.val)):
+            log("Selector:", stylesheet.val[i].prelude)
             stylesheet.val[i].prelude = SelectorParser(
                 stylesheet.val[i].prelude
             ).parse()
@@ -90,13 +129,23 @@ class CSSSyntaxParser:
             contents = declaration_parser.parse_style_block_contents(
                 stylesheet.val[i].block.val
             )
-            print(contents)
 
-            # if not selector_list or not contents:
-            #     # style_rule.invalid = True
-            #     continue
+            for j in range(len(contents)):
+                decl = contents[j]
+                if isinstance(decl, AtRule):
+                    continue
 
-            # style_rule = StyleRule(selector_list, contents)
+                prop = Property.from_name(decl.name)
+                assert prop, decl
+                val = decl.val
+                parser = PropertyParser(val)
+                if value := parser.parse_entire_value(prop):
+                    contents[j] = value
+                    log(f"{prop} = {value}")
+
+            log()
+            out.append(StyleRule(stylesheet.val[i].prelude, contents))
+        return out
 
     def parse_comma_separated_list(self, inp) -> list[Component | Token]:
         # parse(), but a malformed CSS item in a comma separated list will be handled correctly.
@@ -442,10 +491,7 @@ class SelectorParser:
     # ======================== Parse Left Hand Rules ======================== #
 
     def parse(self):
-        log("Selector Parser input tokens:", self.stream.tokens)
-
         selector_list = self.parse_selector_list()
-        log("\nSelector list:", selector_list)
         return selector_list
 
     def parse_selector_list(self) -> list[Selector]:
@@ -820,9 +866,10 @@ class SelectorParser:
 
 if __name__ == "__main__":
     import sys
+
     set_debug()
 
-    f = "./browser.css"
+    f = "./css/browser.css"
     if len(sys.argv) > 1:
         f = sys.argv[1]
 

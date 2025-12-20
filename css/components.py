@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from lexer import Token
+from css.lexer import Token
 
 
 # ComponentValues from the spec

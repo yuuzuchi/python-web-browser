@@ -2925,7 +2925,7 @@ def property_is_positional_value_list_shorthand(property: Property) -> bool:
 if __name__ == "__main__":
     set_debug()
 
-    PROP = Property.FONT_STYLE
+    PROP = Property.COLOR
 
     log(property_accepts_type(PROP, ValueType.LENGTH))
     log(property_accepts_keyword(PROP, Keyword.X_SMALL))

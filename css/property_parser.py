@@ -1,12 +1,11 @@
 from enums import Property, Keyword
 from typing import Callable
-from css_components import Component
-from css_parser_new import CSSSyntaxParser
-from css_value_parser import ValueParser
-from css_property import *
-from css_style_values import *
-from lexer import Lexer, Token, Tok
-from css_token_stream import CSSTokenStream
+from css.components import Component
+from css.value_parser import ValueParser
+from css.property import *
+from css.style_values import *
+from css.lexer import Lexer, Token, Tok
+from css.token_stream import CSSTokenStream
 from log import log, err, set_debug
 
 
@@ -188,6 +187,8 @@ class PropertyParser:
         # tokenize as a css value
         # FIXME: there is no CSSSyntaxParser.parse_css_value(),
         # I'm currently just piggybacking off of parse_declaration
+        from css_parser_new import CSSSyntaxParser
+
         decl = CSSSyntaxParser().parse_declaration(
             f"{property_as_string}: {initial_value_as_string}"
         )
@@ -210,7 +211,7 @@ class PropertyParser:
         tok = self.stream.peek()
 
         # does property accept a parsed keyword?
-        if tok.type == Tok.IDENT:
+        if tok.type == Tok.IDENT and tok.val in Keyword:
             keyword = KeywordValue(tok.val)
             if not keyword.is_css_wide() and property_accepts_keyword(
                 property, Keyword(tok.val)
@@ -607,6 +608,8 @@ if __name__ == "__main__":
     
     """
     toks = Lexer(declaration).parse()
+    from css_parser_new import CSSSyntaxParser
+
     contents = CSSSyntaxParser().parse_declaration_list(toks)
     prop = Property.from_name(contents[0].name)
     val = contents[0].val
