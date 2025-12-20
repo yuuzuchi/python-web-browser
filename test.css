@@ -1,15 +1,18 @@
-/*h1>h2 h3 {
+/* h1>h2 h3 {
     color: white;
-}*/
+}
 
-/*div.pog[hi *=deow s]:has(h3) {
-    color: white;
-}*/
+*/
+/* div.pog[hi *=deow s]:has(h3) {
+    color: white !important;
+} */
+
 
 button:not(:disabled) {
-    color: white;
-    stroke: rgb(255 0 0);
+    /* font: italic small-caps bold ultra-expanded 16px/1.5 "Helvetica Neue", Arial, "Noto Sans", sans-serif; */
+        hi: 3.0;
 }
+
 
 /*
 [ComplexSelector(specificity=(0, 0, 1), invalid=True, compound_selectors=[CompoundSelector(specificity=(0, 0, 1), invalid=False, selectors=[TypeSelector(specificity=(0, 0, 1), invalid=False, tag='h1', namespace='')], pseudo_element_chain=[], combinator=<Combinator.NONE: ''>)]), 

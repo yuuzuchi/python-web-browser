@@ -82,6 +82,14 @@ class Token:
             case _:
                 pass
 
+    def is_ident(self, val: str, case_insensitive=True):
+        return self.type == Tok.IDENT and (
+            self.val.lower() == val.lower() if case_insensitive else self.val == val
+        )
+
+    def is_delim(self, delim: str):
+        return self.type == Tok.DELIM and self.val == delim
+
 
 class Lexer:
 
