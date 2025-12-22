@@ -223,14 +223,14 @@ def flatten(layouts: list[Layout]) -> Iterator[TextLayout | BreakLayout]:
         if isinstance(layout, TextLayout) or isinstance(layout, BreakLayout):
             yield layout
             continue
-        
+
         # yield children
         if isinstance(layout, InlineElementLayout):
             for child in layout.children:
                 yield from flatten([child])
-        
+
         else: # children somehow contain block layout
-            assert False
+            raise AssertionError
 
 def paint_tree(layout_object: Layout, display_list):
     display_list.extend(layout_object.paint())

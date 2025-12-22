@@ -1,11 +1,23 @@
-from enums import Property, Keyword
+from css.style_values.dimension import TimeValue
+from css.style_values.dimension import AngleValue
+from css.style_values.dimension import LengthValue
+from css.style_values.dimension import PercentageValue
+from css.style_values.calculated import CalculatedValue
+from css.style_values.custom_ident import CustomIdentValue
+from css.style_values.string import StringValue
+from css.style_values.shorthand import ShorthandStyleValue
+from css.style_values.keyword import KeywordValue
+from css.style_values.list import ListStyleValue
+from css.style_values.base import StyleValue
+from css.enums import Property, Keyword
 from typing import Callable
 from css.components import Component
+from css.parser import Declaration
 from css.value_parser import ValueParser
 from css.property import *
-from css.style_values import *
 from css.lexer import Lexer, Token, Tok
 from css.token_stream import CSSTokenStream
+from css.initial_value_cache import property_initial_value
 from log import log, err, set_debug
 
 
@@ -56,21 +68,15 @@ VALUE_TYPE_PRECEDENCE = [
 SIMPLE_TYPES = VALUE_TYPE_PRECEDENCE[:16]
 
 
-class SyntaxError:
-    pass
-
-
 # https://www.w3.org/TR/css-values-4/
 class PropertyParser:
-    _initial_value_cache = {}
-
     def __init__(self, inp):
         self.stream = inp
         if not isinstance(inp, CSSTokenStream):
             self.stream = CSSTokenStream(inp)
         self.value_parser = ValueParser(self.stream)
 
-    def parse_entire_value(self, property: Property) -> StyleValue | SyntaxError:
+    def parse_entire_value(self, property: Property) -> StyleValue | None:
         """
         Parses a full declaration. Used as the primary entry point.
         1. If value is a CSS-wide/builtin ident, parse and return.
@@ -85,13 +91,13 @@ class PropertyParser:
         # TODO: check substitution preference of entire value
 
         # helper to parse entire value. Takes a parse function as input, e.g. parse_as(self.parse_font_style)
-        def parse_as(callback: Callable) -> StyleValue | SyntaxError:
+        def parse_as(callback: Callable) -> StyleValue | None:
             self.stream.consume_whitespace()
             parsed = callback()
             self.stream.consume_whitespace()
             if parsed and not self.stream.has_next():
                 return parsed
-            return SyntaxError()
+            return None
 
         # 1. parse builtin
         res = parse_as(self.parse_builtin_value)
@@ -117,7 +123,7 @@ class PropertyParser:
             res = self.parse_positional_value_list_shorthand(property)
             if res and not self.stream.has_next():
                 return res
-            return self.parseError("Failed to parse positional value list shorthand")
+            return self.parse_error("Failed to parse positional value list shorthand")
 
         # 5. single-property value lists
         with self.stream.transaction() as tx:
@@ -148,14 +154,14 @@ class PropertyParser:
     # parses each item with input function parse_func
     def parse_comma_separated_value_list(
         self,
-        parse_func: Callable[[list[Component | Token]], StyleValue],
-    ) -> list[StyleValue]:
+        parse_func: Callable,
+    ) -> ListStyleValue | None:
         self.stream.consume_whitespace()
         first = parse_func()
         self.stream.consume_whitespace()
 
         if not first or self.stream.peek().type == Tok.EOF:
-            return first
+            return ListStyleValue([first], delim=",")
 
         values = [first]
         while self.stream.peek().type != Tok.EOF:
@@ -169,38 +175,12 @@ class PropertyParser:
                 self.stream.consume_whitespace()
             else:
                 return None
-        return values
-
-    def property_initial_value(self, property: Property) -> StyleValue:
-        # initial value for property cache hit
-        cache = type(self)._initial_value_cache
-        if property in cache:
-            return cache[property]
-
-        # get initial values (str) from css_property.py
-        property_as_string = property.value
-        initial_value_as_string = PROPERTIES.get(property_as_string).get("initial")
-
-        if not initial_value_as_string:
-            return None
-
-        # tokenize as a css value
-        # FIXME: there is no CSSSyntaxParser.parse_css_value(),
-        # I'm currently just piggybacking off of parse_declaration
-        from css_parser_new import CSSSyntaxParser
-
-        decl = CSSSyntaxParser().parse_declaration(
-            f"{property_as_string}: {initial_value_as_string}"
-        )
-
-        if out := PropertyParser(decl.val).parse_entire_value(property):
-            cache[property] = out
-            return out
+        return ListStyleValue(values, delim=",")
 
     def parse_positional_value_list_shorthand(self, property: Property) -> StyleValue:
         pass
 
-    def parse_value_for_property(self, property: Property) -> StyleValue:
+    def parse_value_for_property(self, property: Property) -> StyleValue | None:
         """
         Attempt to parse a single value (a token) for a property.
         First checks if the token is a keyword, and if the property accepts the keyword.
@@ -211,7 +191,7 @@ class PropertyParser:
         tok = self.stream.peek()
 
         # does property accept a parsed keyword?
-        if tok.type == Tok.IDENT and tok.val in Keyword:
+        if tok.type == Tok.IDENT and tok.val and tok.val in Keyword:
             keyword = KeywordValue(tok.val)
             if not keyword.is_css_wide() and property_accepts_keyword(
                 property, Keyword(tok.val)
@@ -219,7 +199,10 @@ class PropertyParser:
                 self.stream.consume()
                 return keyword
 
-        accepted_types = property_accepted_types(property)
+        if not (accepted_types := property_accepted_types(property)):
+            err(f"{property} accepts no value types!")
+            return
+
         for t in VALUE_TYPE_PRECEDENCE:
             if t not in accepted_types:
                 continue
@@ -234,7 +217,6 @@ class PropertyParser:
                 # self.value_parser.set_context(self.e
                 if value := self.value_parser.parse_integer_value():
                     if property_accepts_integer(property, value.int_value):
-                        tx.commit()
                         return value
 
             elif t == ValueType.NUMBER:
@@ -319,7 +301,7 @@ class PropertyParser:
                         if value := self.value_parser.parse_length_percentage_value():
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
-                                isinstance(value, LengthValue) and property_accepts_length(property, value.length)) or (
+                                isinstance(value, LengthValue) and property_accepts_length(property, value.length.value)) or (
                                 isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage)
                             ):  # fmt: on
                                 tx.commit()
@@ -328,7 +310,7 @@ class PropertyParser:
                     if value := self.value_parser.parse_length_value():
                         if isinstance(value, CalculatedValue) or (
                             isinstance(value, LengthValue)
-                            and property_accepts_length(property, value.length)
+                            and property_accepts_length(property, value.length.value)
                         ):
                             tx.commit()
                             return value
@@ -399,18 +381,19 @@ class PropertyParser:
 
     # ================================ Textual ================================ #
 
-    def parse_builtin_value(self) -> CSSWideKeywordValue:
+    def parse_builtin_value(self) -> KeywordValue | None:
         tok = self.stream.peek()
-        if tok.type == Tok.IDENT:
-            keyword = KeywordValue(tok.val)
-            if keyword.is_css_wide():
-                self.stream.consume()  # ident
-                return keyword
+        if tok.type == Tok.IDENT and tok.val:
+            if tok.val in Keyword:
+                keyword = KeywordValue(tok.val)
+                if keyword.is_css_wide():
+                    self.stream.consume()  # ident
+                    return keyword
 
     # ================================= Fonts ================================= #
 
     # [ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | <system-family-name>
-    def parse_font_value(self) -> ShorthandStyleValue:
+    def parse_font_value(self) -> ShorthandStyleValue | None:
         font_style = font_variant = font_weight = font_width = font_size = line_height = font_family = None # fmt: skip
 
         self.stream.consume_whitespace()
@@ -440,12 +423,12 @@ class PropertyParser:
                 self.stream.consume()
                 # fmt: off
                 font_variant = ShorthandStyleValue(Property.FONT_VARIANT, {
-                    Property.FONT_VARIANT_CAPS:             self.property_initial_value(Property.FONT_VARIANT_ALTERNATES),
+                    Property.FONT_VARIANT_CAPS:             property_initial_value(Property.FONT_VARIANT_ALTERNATES),
                     Property.FONT_VARIANT_EAST_ASIAN:       KeywordValue("small-caps"),
-                    Property.FONT_VARIANT_EMOJI:            self.property_initial_value(Property.FONT_VARIANT_EMOJI),
-                    Property.FONT_VARIANT_LIGATURES:        self.property_initial_value(Property.FONT_VARIANT_LIGATURES),
-                    Property.FONT_VARIANT_NUMERIC:          self.property_initial_value(Property.FONT_VARIANT_NUMERIC),
-                    Property.FONT_VARIANT_POSITION:         self.property_initial_value(Property.FONT_VARIANT_POSITION)
+                    Property.FONT_VARIANT_EMOJI:            property_initial_value(Property.FONT_VARIANT_EMOJI),
+                    Property.FONT_VARIANT_LIGATURES:        property_initial_value(Property.FONT_VARIANT_LIGATURES),
+                    Property.FONT_VARIANT_NUMERIC:          property_initial_value(Property.FONT_VARIANT_NUMERIC),
+                    Property.FONT_VARIANT_POSITION:         property_initial_value(Property.FONT_VARIANT_POSITION)
                 })  # fmt: on
                 self.stream.consume_whitespace()
                 continue
@@ -495,15 +478,15 @@ class PropertyParser:
 
         # fill in any missing sub properties
         if not font_style:
-            font_style = self.property_initial_value(Property.FONT_STYLE)
+            font_style = property_initial_value(Property.FONT_STYLE)
         if not font_variant:
-            font_variant = self.property_initial_value(Property.FONT_VARIANT)
+            font_variant = property_initial_value(Property.FONT_VARIANT)
         if not font_weight:
-            font_weight = self.property_initial_value(Property.FONT_WEIGHT)
+            font_weight = property_initial_value(Property.FONT_WEIGHT)
         if not font_width:
-            font_width = self.property_initial_value(Property.FONT_WIDTH)
+            font_width = property_initial_value(Property.FONT_WIDTH)
         if not line_height:
-            line_height = self.property_initial_value(Property.LINE_HEIGHT)
+            line_height = property_initial_value(Property.LINE_HEIGHT)
 
         # fmt: off
         return ShorthandStyleValue(Property.FONT, { 
@@ -514,16 +497,18 @@ class PropertyParser:
             Property.FONT_VARIANT: font_variant,
             Property.FONT_WEIGHT: font_weight,
             Property.LINE_HEIGHT: line_height,
-            Property.FONT_FEATURE_SETTINGS: Keyword("initial"),
-            Property.FONT_KERNING: self.property_initial_value(Property.FONT_KERNING),
-            Property.FONT_LANGUAGE_OVERRIDE: Keyword("initial"),
-            Property.FONT_VARIATION_SETTINGS: Keyword("initial")
+            Property.FONT_FEATURE_SETTINGS: KeywordValue("initial"),
+            Property.FONT_KERNING: property_initial_value(Property.FONT_KERNING),
+            Property.FONT_LANGUAGE_OVERRIDE: KeywordValue("initial"),
+            Property.FONT_VARIATION_SETTINGS: KeywordValue("initial")
         })  # fmt: on
 
     # [ <family-name> | <generic-family> ]#
-    def parse_font_family_value(self) -> KeywordValue | StringValue:
+    def parse_font_family_value(
+        self,
+    ) -> ListStyleValue | CustomIdentValue | StringValue | None:
 
-        def parse_a_value() -> KeywordValue | StringValue:
+        def parse_a_value() -> CustomIdentValue | StringValue | None:
             self.stream.consume_whitespace()
 
             # gerneric family cannot be quoted, so we'll check for ident first
@@ -531,7 +516,7 @@ class PropertyParser:
             if tok.type == Tok.IDENT and tok.val.lower() in GENERIC_FONT_FAMILIES:
                 font = self.stream.consume()
                 self.stream.consume_whitespace()
-                return KeywordValue(font.val)
+                return CustomIdentValue(font.val)
             # <family-name>
             else:
                 return self.parse_family_name_value()
@@ -539,7 +524,7 @@ class PropertyParser:
         return self.parse_comma_separated_value_list(parse_a_value)
 
     # <family-name> = <string> | <custom-ident>+
-    def parse_family_name_value(self) -> KeywordValue | StringValue:
+    def parse_family_name_value(self) -> StringValue | CustomIdentValue | None:
         self.stream.consume_whitespace()
         parts = []
         while self.stream.peek().type != Tok.EOF:
@@ -566,7 +551,7 @@ class PropertyParser:
         if len(parts) == 1:
             # no generic fonts allowed
             part = parts[0]
-            if KeywordValue(part).is_css_wide:
+            if KeywordValue(part).is_css_wide():
                 return self.parse_error(
                     "Error while parsing font family name value: font family is a generic family"
                 )
@@ -608,7 +593,7 @@ if __name__ == "__main__":
     
     """
     toks = Lexer(declaration).parse()
-    from css_parser_new import CSSSyntaxParser
+    from css.parser import CSSSyntaxParser
 
     contents = CSSSyntaxParser().parse_declaration_list(toks)
     prop = Property.from_name(contents[0].name)

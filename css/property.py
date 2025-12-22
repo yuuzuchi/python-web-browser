@@ -1,4 +1,6 @@
-from enums import Keyword, Property, ValueType, KEYWORD_GROUPS, KeywordGroup
+from typing import Type
+from enum import Enum
+from css.enums import Keyword, Property, ValueType, KEYWORD_GROUPS, KeywordGroup
 from log import log, err, warn, set_debug
 
 # adapted from ladybird's properties.json
@@ -2248,7 +2250,7 @@ PROPERTIES = {
     "scrollbar-color": {
         "affects-layout": False,
         "animation-type": "by-computed-value",
-        "inherited": "yes",
+        "inherited": True,
         "initial": "auto",
     },
     "scrollbar-gutter": {
@@ -2768,6 +2770,14 @@ def keyword_group_to_keywords(kw_group: str) -> dict[Keyword, KeywordGroup]:
     return {}
 
 
+def keyword_to_keyword_group_keyword(
+    keyword: Keyword, group: Type[Enum]
+) -> Enum | None:
+    """ex: (Keyword::INSIDE, group=AnchorSide) -> AnchorSide::INSIDE"""
+    if keyword.value in group._value2member_map_:
+        return group(keyword.value)
+
+
 # type_range = "type [low,high]"
 def _is_in_range(type_range: str, value) -> bool:
     assert "[" in type_range
@@ -2778,19 +2788,22 @@ def _is_in_range(type_range: str, value) -> bool:
 
 
 def property_accepted_types(property: Property) -> set[ValueType]:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
     out = set()
-    for type in types:
+    for type in valid_types:
         type_name = type.split(" ")[0]
         if type_name in ValueType._value2member_map_:
             out.add(ValueType._value2member_map_[type_name])
-    return out if out else None
+    return out if out else set()
 
 
 def property_accepted_keywords(property: Property) -> set[Keyword]:
     prop = PROPERTIES.get(property.value, {})
     valid_types = prop.get("valid-types", [])
     valid_idents = prop.get("valid-identifiers", [])
+    assert isinstance(valid_types, list)
+    assert isinstance(valid_idents, list)
     out = set()
     for type in valid_types:
         type_name = type.split(" ")[0]
@@ -2811,11 +2824,12 @@ def property_accepted_keywords(property: Property) -> set[Keyword]:
             err(
                 f"valid-identifiers for {property} has {ident}, which does not map to any Keyword enum"
             )
-    return out if out else None
+    return out if out else set()
 
 
 def property_accepts_type(property: Property, type: ValueType) -> bool:
-    valid_types = PROPERTIES.get(property.value).get("valid-types", [])
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
     if not valid_types:
         return False
 
@@ -2832,6 +2846,8 @@ def property_accepts_keyword(property: Property, keyword: Keyword):
     prop = PROPERTIES.get(property.value, {})
     valid_types = prop.get("valid-types", [])
     valid_idents = prop.get("valid-identifiers", [])
+    assert isinstance(valid_types, list)
+    assert isinstance(valid_idents, list)
     if valid_idents:
         for i in valid_idents:
             if keyword.value == i:
@@ -2853,8 +2869,9 @@ def property_accepts_keyword(property: Property, keyword: Keyword):
 
 
 def property_accepts_integer(property: Property, i: int) -> bool:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
-    for t in types:
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
+    for t in valid_types:
         if "integer [" in t:
             return _is_in_range(t, i)
         elif "integer" in t:
@@ -2863,8 +2880,9 @@ def property_accepts_integer(property: Property, i: int) -> bool:
 
 
 def property_accepts_number(property: Property, num: float) -> bool:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
-    for t in types:
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
+    for t in valid_types:
         if "number [" in t:
             return _is_in_range(t, num)
         elif "number" in t:
@@ -2873,8 +2891,9 @@ def property_accepts_number(property: Property, num: float) -> bool:
 
 
 def property_accepts_angle(property: Property, degs: float) -> bool:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
-    for t in types:
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
+    for t in valid_types:
         if "angle [" in t:
             return _is_in_range(t, degs)
         elif "angle" in t:
@@ -2883,8 +2902,9 @@ def property_accepts_angle(property: Property, degs: float) -> bool:
 
 
 def property_accepts_percentage(property: Property, percentage: float) -> bool:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
-    for t in types:
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
+    for t in valid_types:
         if "percentage [" in t:
             return _is_in_range(t, percentage)
         elif "percentage" in t:
@@ -2893,8 +2913,9 @@ def property_accepts_percentage(property: Property, percentage: float) -> bool:
 
 
 def property_accepts_length(property: Property, length: float) -> bool:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
-    for t in types:
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
+    for t in valid_types:
         if "length [" in t:
             return _is_in_range(t, length)
         elif "length" in t:
@@ -2903,8 +2924,9 @@ def property_accepts_length(property: Property, length: float) -> bool:
 
 
 def property_accepts_time(property: Property, time: int) -> bool:
-    types = PROPERTIES.get(property.value, {}).get("valid-types", [])
-    for t in types:
+    valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
+    assert isinstance(valid_types, list)
+    for t in valid_types:
         if "time [" in t:
             return _is_in_range(t, time)
         elif "time" in t:
@@ -2913,13 +2935,17 @@ def property_accepts_time(property: Property, time: int) -> bool:
 
 
 def property_is_inherited(property: Property) -> bool:
-    return PROPERTIES.get(property.value, {}).get("inherited", False)
+    is_inherited = PROPERTIES.get(property.value, {}).get("inherited", False)
+    assert isinstance(is_inherited, bool), is_inherited
+    return is_inherited
 
 
 def property_is_positional_value_list_shorthand(property: Property) -> bool:
-    return PROPERTIES.get(property.value, {}).get(
+    is_positional_value_list_shorthand = PROPERTIES.get(property.value, {}).get(
         "positional-value-list-shorthand", False
     )
+    assert isinstance(is_positional_value_list_shorthand, bool)
+    return is_positional_value_list_shorthand
 
 
 if __name__ == "__main__":
@@ -2940,6 +2966,7 @@ if __name__ == "__main__":
         if not isinstance(prop, dict):
             continue
         valid = prop.get("valid-types")
+        assert isinstance(valid, list)
         if not valid:
             continue
         for type in valid:

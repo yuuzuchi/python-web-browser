@@ -1,22 +1,20 @@
 # https://www.w3.org/TR/css-syntax-3/#parse-grammar
 import collections
-from typing import Any
-from css.components import (
-    AtRule,
-    Component,
-    Declaration,
-    Function,
-    QualifiedRule,
-    Rule,
-    SimpleBlock,
-    Stylesheet,
-)
-from css.property_parser import PropertyParser
-from enums import Property
-from log import log, warn, err, set_debug
-from css.token_stream import CSSTokenStream
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
+from css.components import (
+    Component,
+    SimpleBlock,
+    Function,
+)
+
+from css.enums import Property
+from css.parse_context import ParseContext
+from log import log, err, set_debug
+from css.token_stream import CSSTokenStream
 from css.lexer import Lexer, Tok, Token
+from css.enums import Origin
 from css.selectors import (
     AttributeMatch,
     AttributeSelector,
@@ -31,45 +29,72 @@ from css.selectors import (
     SimpleSelector,
     TypeSelector,
     UniversalSelector,
-    rightmost_selector,
 )
+from css.stylesheet import CSSStylesheet
+from css.style_rule import StyleRule
+from css.style_declaration import StyleDeclaration
+
+# Container classes, only used while parsing
+# For computing styles, CSSStylesheet, StyleRule, and StyleDeclaration are used instead
+# as they contain parsed StyleValues instead of token lists
 
 
-def build_index(selector: Selector, rule: Rule, index: list[dict[set]]) -> None:
-    # builds an index of rightmost selector -> rule
-    # index is as follows:
-    # index = [id_dict, class_dict, type_dict, attr_dict, attr_eq_dict, universal_dict]
-    # ex id_dict: {"a": {rule1, rule2, rule3}}
-    # modifies given index in place
-    if not len(index) == 6:
-        index = [collections.defaultdict(set())] * 6
+@dataclass
+class Rule:
+    prelude: list
+    block: Optional[Any]
+    location: Optional[Any] = None
 
-    rightmost = rightmost_selector(selector)
-    if isinstance(rightmost, IDSelector):
-        index[0][rightmost.ID].add(rule)
-    elif isinstance(rightmost, ClassSelector):
-        index[1][rightmost.class_].add(rule)
-    elif isinstance(rightmost, TypeSelector):
-        index[2][rightmost.tag].add(rule)
-    elif isinstance(rightmost, AttributeSelector):
-        if rightmost.oper == AttributeMatch.HAS_ATTR:
-            index[3][rightmost.att].add(rule)
-        elif rightmost.oper == AttributeMatch.EXACT_MATCH:
-            index[4][(rightmost.att, rightmost.val)].add(rule)
-    elif isinstance(rightmost, UniversalSelector):
-        index[5]["*"].add(rule)
+    def __str__(self):
+        return f"{"".join(map(str, self.prelude))} {self.block}"
 
 
-class StyleRule:
-    def __init__(self, selector_list: list[Selector], contents):
-        self.selector_list = selector_list
-        self.contents = contents
+@dataclass
+class AtRule(Rule):
+    name: str = ""
+
+    def __str__(self):
+        prelude = "".join(map(str, self.prelude))
+        res = f"@{self.name} {prelude}"
+        if self.block:
+            res += f" {self.block}"
+        else:
+            res += ";"
+        return res
+
+
+@dataclass
+class QualifiedRule(Rule):
+    block: list[Any] = field(default_factory=list)
+
+    @property
+    def selectors(self):
+        return self.prelude
+
+    def __str__(self):
+        return super().__str__()
+
+
+@dataclass
+class Stylesheet:
+    location: Optional[str]
+    val: list[Rule]
+
+
+@dataclass
+class Declaration:
+    name: str
+    val: list[Token]
+    important: bool = False
+
+    def __str__(self):
+        vals = self.val
+        if isinstance(vals, list):
+            vals = "".join(map(str, self.val))
+        return f"{self.name}: {vals}{" !important" if self.important else ""};"
 
 
 class CSSSyntaxParser:
-    input: CSSTokenStream
-    reconsume_next: bool = False
-
     def init_state(self, inp: Any):
         self.reconsume_next = False
         if not isinstance(inp, CSSTokenStream):
@@ -113,40 +138,77 @@ class CSSSyntaxParser:
     # ======================== Parser Entry Points ======================== #
 
     # https://www.w3.org/TR/css-syntax-3/#css-stylesheets
-    def parse_css_stylesheet(self, inp) -> list[StyleRule]:
+    def parse_css_stylesheet(self, inp, parse_context: ParseContext) -> CSSStylesheet:
         self.init_state(inp)
+        out = []
+        declaration_parser = CSSSyntaxParser()
         stylesheet = self.parse_stylesheet(self.input)
 
-        # replace each qualified rule with a StyleRule
-        declaration_parser = CSSSyntaxParser()
-        out = []
-        for i in range(len(stylesheet.val)):
-            log("Selector:", stylesheet.val[i].prelude)
-            stylesheet.val[i].prelude = SelectorParser(
-                stylesheet.val[i].prelude
-            ).parse()
-            assert isinstance(stylesheet.val[i].block, SimpleBlock)
-            contents = declaration_parser.parse_style_block_contents(
-                stylesheet.val[i].block.val
-            )
+        for i, rule in enumerate(stylesheet.val):
+            assert rule.block
 
-            for j in range(len(contents)):
-                decl = contents[j]
+            # parse and replace selectors with a list of ComplexSelectors
+            rule.prelude = SelectorParser(rule.prelude).parse()
+            # log("Selector:", rule.prelude)
+
+            # replace each qualified rule with a StyleRule
+            assert isinstance(stylesheet.val[i].block, SimpleBlock)
+
+            declarations = declaration_parser.parse_style_block_contents(rule.block.val)
+            from css.property_parser import PropertyParser
+
+            temp = []
+            for decl in declarations:
                 if isinstance(decl, AtRule):
                     continue
 
+                assert isinstance(decl, Declaration)
                 prop = Property.from_name(decl.name)
                 assert prop, decl
-                val = decl.val
-                parser = PropertyParser(val)
-                if value := parser.parse_entire_value(prop):
-                    contents[j] = value
-                    log(f"{prop} = {value}")
+                if value := PropertyParser(decl.val).parse_entire_value(prop):
+                    temp.append(StyleDeclaration(prop, value, decl.important))
+                    # log(f"{prop} = {value}{" !important" if decl.important else ""}")
 
-            log()
-            out.append(StyleRule(stylesheet.val[i].prelude, contents))
-        return out
+            out.append(
+                StyleRule(
+                    selector_list=stylesheet.val[i].prelude,
+                    declarations=temp,
+                    source_order=parse_context.source_order,
+                    origin=parse_context.origin,
+                )
+            )
+            parse_context.source_order += 1
+        return CSSStylesheet(out, parse_context.origin)
 
+    def parse_css_style_attribute(
+        self, inp, parse_context: ParseContext
+    ) -> CSSStylesheet:
+        self.init_state(inp)
+        out = []
+        declarations = self.parse_declaration_list(self.input)
+
+        temp = []
+        from css.property_parser import PropertyParser
+
+        for decl in declarations:
+            prop = Property.from_name(decl.name)
+            assert prop, decl
+            if value := PropertyParser(decl.val).parse_entire_value(prop):
+                temp.append(StyleDeclaration(prop, value, decl.important))
+
+        out.append(
+            StyleRule(
+                selector_list=[],
+                declarations=temp,
+                source_order=parse_context.source_order,
+                is_style_attribute=True,
+                origin=parse_context.origin,
+            )
+        )
+        parse_context.source_order += 1
+        return CSSStylesheet(out, parse_context.origin)
+
+    """
     def parse_comma_separated_list(self, inp) -> list[Component | Token]:
         # parse(), but a malformed CSS item in a comma separated list will be handled correctly.
         self.init_state(inp)
@@ -164,8 +226,9 @@ class CSSSyntaxParser:
 
         # cvls_list is now a list of CSS grammar keywords
         return cvls_list
+    """
 
-    def parse_stylesheet(self, inp, location: str = None) -> Stylesheet:
+    def parse_stylesheet(self, inp, location: str = "") -> Stylesheet:
         # inp as type bytestream not in scope for this simple browser
         self.init_state(inp)
         rules = self.consume_rule_list(top_level=True)
@@ -647,7 +710,7 @@ class SelectorParser:
     def parse_type_selector(self) -> TypeSelector | UniversalSelector:
         if self.is_wq_name():
             namespace, name = self.parse_wq_name()
-            return TypeSelector(name, namespace)
+            return TypeSelector(name.casefold(), namespace)
         else:
             out = UniversalSelector()
             if self.is_ns_prefix():
@@ -696,7 +759,8 @@ class SelectorParser:
 
     def parse_id_selector(self) -> IDSelector:
         hash_tok = self.stream.consume()
-        return IDSelector(hash_tok.val)
+        assert hash_tok.val
+        return IDSelector(hash_tok.val.val)
 
     def parse_class_selector(self) -> ClassSelector:
         self.expect(type=Tok.DELIM, val=".")
@@ -727,7 +791,9 @@ class SelectorParser:
 
         if self.stream.peek().type == Tok.EOF:
             self.stream.consume()
-            return AttributeSelector(attr, AttributeMatch.HAS_ATTR, namespace=namespace)
+            return AttributeSelector(
+                attr.casefold(), AttributeMatch.HAS_ATTR, namespace=namespace
+            )
 
         matcher = self.parse_attr_matcher()
         self.stream.consume_whitespace()
@@ -747,7 +813,7 @@ class SelectorParser:
             modifier = self.parse_attr_modifier()
 
         return AttributeSelector(
-            attr, matcher, val=val, modifier=modifier, namespace=namespace
+            attr.casefold(), matcher, val=val, modifier=modifier, namespace=namespace
         )
 
     def parse_attr_matcher(self) -> AttributeMatch:
@@ -876,5 +942,7 @@ if __name__ == "__main__":
     with open(f, "r") as file:
         lexer = Lexer(file.read())
         tokens = lexer.parse()
+        context = ParseContext(origin=Origin.USER_AGENT)
         parser = CSSSyntaxParser()
-        stylesheet = parser.parse_css_stylesheet(tokens)
+        stylesheet = parser.parse_css_stylesheet(tokens, parse_context=context)
+        log(stylesheet)

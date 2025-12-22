@@ -1,4 +1,5 @@
 import collections
+from url import URL
 
 
 class HistoryManager:
@@ -23,5 +24,5 @@ class HistoryManager:
             if self.visited_map[url] <= 0:
                 del self.visited_map[url]
 
-    def has_url(self, url: str) -> bool:
-        return url in self.visited_map
+    def has_url(self, url: URL) -> bool:
+        return str(url) in self.visited_map

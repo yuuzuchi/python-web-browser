@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-
+from css.lexer import Tok, Token
+from .base import StyleValue
 
 NAMED_COLOR_MAP = {
     "aliceblue": (240, 248, 255),
@@ -211,3 +212,19 @@ class Color:
 
     def to_hex_str(self) -> str:
         return f"#{self.red:02x}{self.green:02x}{self.blue:02x}{self.alpha:02x}"
+
+    def __str__(self):
+        if self.alpha == 255:
+            return f"rgb({self.red}, {self.green}, {self.blue})"
+        return f"rgba({self.red}, {self.green}, {self.blue}, {self.alpha/255.0:.2f})"
+
+@dataclass
+class ColorValue(StyleValue):
+    color: Color
+
+    def to_token(self) -> Token:
+        # Return the color as a hash token (e.g., #RRGGBB)
+        return Token(type=Tok.HASH, val=self.color.to_hex_str())
+
+    def __str__(self):
+        return str(self.color)

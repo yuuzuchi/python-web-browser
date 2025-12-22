@@ -32,7 +32,7 @@ class CSSTokenStream:
         self.next()
         return self.cur
 
-    def accept(self, type: Tok = None, val=None) -> Token | bool:
+    def accept(self, type: Tok, val=None) -> Token | bool:
         n = self.peek()
         if type and n.type != type:
             return False
@@ -54,7 +54,7 @@ class CSSTokenStream:
 
         return Token(type=Tok.WHITESPACE, val=None) if is_whitespace else None
 
-    def consume_until(self, type: Tok = None, val=None) -> None:
+    def consume_until(self, type: Tok, val=None) -> None:
         while True:
             n = self.peek()
             if n.type == type:
@@ -95,7 +95,9 @@ class CSSTokenStream:
         return self._Transaction(self)
 
 if __name__ == "__main__":
-    ts = CSSTokenStream([1, 2, 3])
+    ts = CSSTokenStream(
+        [Token(Tok.IDENT, "1"), Token(Tok.IDENT, "2"), Token(Tok.IDENT, "3")]
+    )
     with ts.transaction() as tx:
         print("First next() call:", ts.next())
 

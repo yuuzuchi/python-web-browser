@@ -1,4 +1,5 @@
 from url import URL
+from dom import Document, Element, Text, Node
 
 SELF_CLOSING_TAGS = [
     "area",
@@ -44,43 +45,6 @@ FORMAT_TAGS = [
 ]
 
 LINK_TAGS = ["a", "area", "link"]
-
-
-class Node:
-    def __init__(self, parent):
-        self.parent: Element = parent
-
-
-class Text(Node):
-    def __init__(self, text, parent):
-        super().__init__(parent)
-        self.text = text
-        self.children: list[Node] = []
-        self.style = {}
-        self.classes = set()
-
-    def __repr__(self):
-        return f"{self.text}, style={self.style}"
-
-
-class Element(Node):
-    def __init__(self, tag, attributes, parent, classes):
-        super().__init__(parent)
-        self.tag = tag
-        self.attributes = attributes
-        self.children: list[Node] = []
-        self.style = {}
-        self.classes = classes
-
-    def __repr__(self):
-        return f"<{self.tag}>{str(self.attributes) if self.attributes else ""}, style={self.style}, class={self.classes}"
-
-
-class Document:
-    def __init__(self, document_element: Element, url: URL):
-        self.document_element = document_element
-        document_element.owner_document = self
-        self.url = url
 
 
 def get_document(node: Node) -> Document:
@@ -185,7 +149,7 @@ class HTMLParser:
 
         return Document(self.finish(), self.url)
 
-    def is_in_pre(self):
+    def is_in_pre(self) -> bool:
         return any(
             isinstance(node, Element) and node.tag == "pre" for node in self.unfinished
         )
@@ -241,7 +205,7 @@ class HTMLParser:
             parent.children.append(node)
         return self.unfinished.pop()
 
-    def get_attributes(self, text) -> tuple[str, dict, set]:
+    def get_attributes(self, text) -> tuple[str, dict[str, str], set[str]]:
         # returns (tag, attributes, classes)
         parts = text.split(None, 1)
         if len(parts) == 1:
@@ -295,7 +259,9 @@ class HTMLParser:
         # get classes
         classes = attributes.get("class")
         if classes:
-            classes = set(c.casefold() for c in classes.split(" "))
+            classes = {c.casefold() for c in classes.split(" ")}
+            # remove redundant classes from attributes
+            del attributes["class"]
         else:
             classes = set()
 

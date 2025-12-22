@@ -1,6 +1,9 @@
 from enum import Enum
 
 
+# ==================================== parsing ==================================== #
+
+
 class Property(Enum):
     CUSTOM = "custom"
     FONT = "font"
@@ -666,7 +669,7 @@ class Keyword(str, Enum):
     LIGHTER = "lighter"
     LINE_THROUGH = "line-through"
     LINEAR = "linear"
-    LINEARRGB = "linearrgb"
+    LINEARRGB = "linearRGB"
     LINING_NUMS = "lining-nums"
     LINKTEXT = "linktext"
     LIST_ITEM = "list-item"
@@ -991,13 +994,6 @@ class Keyword(str, Enum):
     Y_START = "y-start"
     ZOOM_IN = "zoom-in"
     ZOOM_OUT = "zoom-out"
-
-    @classmethod
-    def from_string(cls, keyword: str) -> "Keyword":
-        try:
-            return cls(keyword)
-        except ValueError:
-            return None
 
 
 class KeywordGroup:
@@ -2155,3 +2151,15 @@ KEYWORD_GROUPS = {
     "word-break": WordBreak,
     "writing-mode": WritingMode,
 }
+
+
+# ==================================== misc ==================================== #
+class Origin(Enum):
+    USER_AGENT = 0
+    USER = 1
+    AUTHOR_ORIGIN = 2
+    ANIMATION = 3
+    IMPORTANT_AUTHOR_ORIGIN = 4
+    IMPORTANT_USER = 5
+    IMPORTANT_USER_AGENT = 6
+    TRANSITION = 4

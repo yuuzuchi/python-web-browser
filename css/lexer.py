@@ -42,18 +42,20 @@ class Num(Enum):
 
 
 def is_ident_start(c: str) -> bool:
-    if c == None:
+    if not c:
         return False
     return c in "_" or c.isalpha() or not c.isascii()
 
 
 def is_ident(c: str) -> bool:
-    if c == None:
+    if not c:
         return False
     return is_ident_start(c) or c == "-" or c.isdigit()
 
 
 def is_hex_digit(c: str) -> bool:
+    if not c:
+        return False
     return c.isdigit() or c in "abcdefABCDEF"
 
 
@@ -68,7 +70,52 @@ class Token:
     def __repr__(self):
         return f"<tok.{self.type.name} val='{self.val}'>"
 
-    def mirror(self):
+    def __str__(self):
+        match self.type:
+            case Tok.WHITESPACE:
+                return " "
+            case Tok.COLON:
+                return ": "
+            case Tok.SEMICOLON:
+                return ";"
+            case Tok.COMMA:
+                return ", "
+            case Tok.LBRAC:
+                return "["
+            case Tok.RBRAC:
+                return "]"
+            case Tok.LPAREN:
+                return "("
+            case Tok.RPAREN:
+                return ")"
+            case Tok.LBRACE:
+                return " {"
+            case Tok.RBRACE:
+                return "}"
+            case Tok.FUNCTION:
+                return f"{self.val}("
+            case Tok.AT_KEYWORD:
+                return f"@{self.val}"
+            case Tok.HASH:
+                return f"#{self.val}"
+            case Tok.STRING:
+                return f"'{self.val}'"
+            case Tok.DIMENSION:
+                return f"{self.val}{self.dim_unit}"
+            case Tok.PERCENTAGE:
+                return f"{self.val}%"
+            case Tok.DELIM:
+                return str(self.val)
+            case Tok.IDENT:
+                return str(self.val)
+            case Tok.NUMBER:
+                return str(self.val)
+            case Tok.URL:
+                return f"url('{self.val}')"
+            case _:
+                return ""
+
+    def mirror(self) -> "Token | None":
         assert self.type in [Tok.LBRAC, Tok.LBRACE, Tok.LPAREN]
         match self.type:
             case Tok.LBRAC:
@@ -112,6 +159,7 @@ class Lexer:
     def peek(self, n, length=1) -> str:
         if 0 <= self.i + n < len(self.s):
             return self.s[self.i + n : self.i + n + length]
+        return ""
 
     def tokenize_error(self):
         print(
@@ -220,7 +268,7 @@ class Lexer:
         return Token(Tok.DELIM, c)
 
     def consume_whitespace(self) -> Token:
-        while self.peek(0) != None and self.peek(0).isspace():
+        while self.peek(0).isspace():
             self.next_char()
         return Token(Tok.WHITESPACE)
 
@@ -249,9 +297,9 @@ class Lexer:
 
     def consume_comment(self) -> None:
         if self.peek(0, length=2) == "/*":
-            while self.peek(0, length=2) not in ["*/", None]:
+            while self.peek(0, length=2) not in ["*/", ""]:
                 self.next_char()
-            if self.peek(0) == None:
+            if self.peek(0) == "":
                 self.tokenize_error()
             self.next_char()
             self.next_char()
@@ -329,8 +377,8 @@ class Lexer:
                 return url_tok
             if c.isspace():
                 self.consume_whitespace()
-                if self.peek(1) in [None, ")"]:
-                    if self.peek(1) == None:
+                if self.peek(1) in ["", ")"]:
+                    if self.peek(1) == "":
                         self.tokenize_error()
                     self.next_char()
                     return url_tok
@@ -373,7 +421,8 @@ class Lexer:
     def consume_number(self) -> tuple[str, Num]:
         t = Num.INTEGER
         res = []
-        if self.peek(0) in "+-":
+
+        if self.peek(0) in ["+", "-"]:
             res.append(self.next_char())
         while self.peek(0).isdigit():
             res.append(self.next_char())
@@ -387,7 +436,7 @@ class Lexer:
             consume_len = 0
             if self.peek(1).isdigit():
                 consume_len = 2
-            elif self.peek(1) in "+-" and self.peek(2).isdigit():
+            elif self.peek(1) in ["+", "-"] and self.peek(2).isdigit():
                 consume_len = 3
 
             if consume_len:
