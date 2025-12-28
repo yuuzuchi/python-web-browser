@@ -588,7 +588,7 @@ if __name__ == "__main__":
     set_debug()
     declaration = """
     
-    font: normal normal bold small/1.5 "Arial";
+    font: normal normal bold smaller/1.5 "Arial";
     /*font-style: normal;*/
     
     """

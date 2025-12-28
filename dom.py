@@ -7,7 +7,8 @@ class Node:
     def __init__(self, parent):
         self.parent: Element = parent
         self.children: list["Node"] = []
-        self.style: dict[Property, StyleValue] = {}
+        self.computed_style: dict[Property, StyleValue] = {}
+        self.specified_style: dict[Property, StyleValue] = {}
 
 
 class Text(Node):
@@ -18,7 +19,7 @@ class Text(Node):
         self.classes = set()
 
     def __repr__(self):
-        return f"{self.text}, style={self.style}"
+        return f"{self.text}, style={self.computed_style}"
 
 
 class Element(Node):
@@ -38,7 +39,7 @@ class Element(Node):
         self.classes = classes
 
     def __repr__(self):
-        return f"<{self.tag}>{str(self.attributes) if self.attributes else ""}, style={self.style}, class={self.classes}"
+        return f"<{self.tag}>{str(self.attributes) if self.attributes else ""}, style={self.computed_style}, class={self.classes}"
 
 
 class Document:

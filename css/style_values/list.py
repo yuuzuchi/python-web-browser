@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from css.lexer import Tok, Token
 from .base import StyleValue
 
+
 @dataclass
 class ListStyleValue(StyleValue):
     items: list[StyleValue]
@@ -20,4 +21,4 @@ class ListStyleValue(StyleValue):
         sep = self.delim
         if sep == " ":
             return " ".join(str(i) for i in self.items)
-        return f"{sep} ".join(str(i) for i in self.items)
+        return f"{sep} ".join(repr(i) for i in self.items)

@@ -1010,6 +1010,32 @@ class AbsoluteSize(KeywordGroup, Enum):
     XX_LARGE = "xx-large"
     XXX_LARGE = "xxx-large"
 
+FONT_SIZE_SCALING_TABLE = {
+    AbsoluteSize.XX_SMALL: 9,
+    AbsoluteSize.X_SMALL: 10,
+    AbsoluteSize.SMALL: 13,
+    AbsoluteSize.MEDIUM: 16,
+    AbsoluteSize.LARGE: 18,
+    AbsoluteSize.X_LARGE: 24,
+    AbsoluteSize.XX_LARGE: 32,
+    AbsoluteSize.XXX_LARGE: 48
+}
+
+FONT_SIZE_STEPS = [9, 10, 13, 16, 18, 24, 32, 48]
+
+def larger_size(parent_size: int):
+    for size in FONT_SIZE_STEPS:
+        if size > parent_size:
+            return size
+    return parent_size * 1.2
+
+def smaller_size(parent_size: int):
+    for size in reversed(FONT_SIZE_STEPS):
+        if size < parent_size:
+            return size
+    return 9 # FIXME: decide whether to avoid smaller than 9px fonts
+
+
 
 class AlignContent(KeywordGroup, Enum):
     NORMAL = "normal"

@@ -26,7 +26,7 @@ class PercentageValue(DimensionValue):
 
     @property
     def percentage(self):
-        return self.raw_value
+        return self.raw_value / 100
 
     def to_token(self) -> Token:
         return Token(type=Tok.PERCENTAGE, val=self.raw_value)

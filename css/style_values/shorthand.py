@@ -3,6 +3,7 @@ from css.property import Property
 from .base import StyleValue
 from css.lexer import Token
 
+
 @dataclass
 class ShorthandStyleValue(StyleValue):
     property: Property

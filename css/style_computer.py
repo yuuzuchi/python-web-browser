@@ -1,3 +1,14 @@
+from css.style_values.base import StyleValue
+from css.units import LengthUnit
+from css.style_values.dimension import PercentageValue
+from css.enums import larger_size
+from css.enums import smaller_size
+from css.style_values.dimension import Length
+from css.style_values.dimension import LengthValue
+from css.enums import FONT_SIZE_SCALING_TABLE
+from css.enums import AbsoluteSize
+from css.enums import RelativeSize
+from css.property import keyword_to_keyword_group_keyword
 from css.property import property_is_inherited
 from css.style_values.keyword import KeywordValue
 from history import HistoryManager
@@ -46,23 +57,39 @@ class StyleComputer:
         self.stylesheets = stylesheets
         self.DOM = DOM
 
-    def style_tree(self) -> None:
+    # ================================= Primary Methods ================================= #
+
+    def style_tree(self, vw: int, vh: int) -> None:
         # build our index
         for stylesheet in self.stylesheets:
             self.selector_index.build_index_for_rules(stylesheet.rules)
 
-        # filter, match, cascade
-        self.match_and_cascade(self.DOM.document_element)
+        # compute root <html>'s font size
+        root_node = self.DOM.document_element
+        self.compute_root_font_size(root_node, preferred_font_size_px=16)
 
-        # defaulting
-        self.compute_defaults(self.DOM.document_element)
+        # recursively style nodes
+        def recurse(node: Node):
+            # filter, match, cascade
+            self.match_and_cascade(node)
+
+            # defaulting
+            self.compute_defaults(node)
+
+            # resolving
+            self.absolutize_values(node, vw, vh)
+
+        recurse(root_node)
 
         self.print_tree()
 
-    def match_and_cascade(self, node: Element) -> None:
-        """For each element in the DOM, produce a list of candidate rules through selector matching.
-        Then, iterate through rules (in cascade order), applying properties to each node with tiebreakers.
+    def match_and_cascade(self, node: Node) -> None:
+        """For an element in the DOM, produce a list of candidate rules through selector matching.
+        Then, iterate through rules (in cascade order), applying **specified** properties to the node with tiebreakers.
         """
+        if not isinstance(node, Element):
+            return
+
         # gather candidate rules
         candidate_rules: list[StyleRule] = []
         for rule in self.selector_index.get_rules_for_node(node):
@@ -90,7 +117,7 @@ class StyleComputer:
             for decl in rule.declarations:
                 if decl.important:
                     continue
-                node.style[decl.prop] = decl.val
+                node.specified_style[decl.prop] = decl.val
 
         # second pass:
         candidate_rules.sort(key=lambda m: m.get_sort_key(important=True))
@@ -98,18 +125,13 @@ class StyleComputer:
             for decl in rule.declarations:
                 if not decl.important:
                     continue
-                node.style[decl.prop] = decl.val
-
-        # recursively style children
-        for child in node.children:
-            if isinstance(child, Element):
-                self.match_and_cascade(child)
+                node.specified_style[decl.prop] = decl.val
 
     def compute_defaults(self, node: Node) -> None:
         """Compute inherited and initial properties"""
         # TODO: provide lazy compute method
         for prop in Property:
-            if val := node.style.get(prop):
+            if val := node.specified_style.get(prop):
                 if isinstance(val, KeywordValue) and val.is_css_wide:
                     # https://drafts.csswg.org/css-cascade-5/#defaulting-keywords
                     if val.keyword == Keyword.INHERIT:
@@ -130,19 +152,93 @@ class StyleComputer:
             elif property_is_inherited(prop):
                 self.inherit_property(node, prop)
 
-        for child in node.children:
-            self.compute_defaults(child)
+    # https://drafts.csswg.org/css-cascade-5/#computed
+    def absolutize_values(self, node: Node, vw: int, vh: int):
+        """
+        Absolutize the following values IN ORDER, converting from **specified** to **computed** property
+        - TODO: custom idents (var(--hello))
+        - font-family/font-size
+        - values with relative units (em, ex, vh, vw)
+        - smaller, bolder keywords
+        - percentage values on font-size and line-height
+        - relative URLs
+        """
+
+        # TODO: custom ident
+
+        # em/ex unit: font size must be resolved before other properties,
+        # since em on other properties are resolved against the same node's font size
+        font = node.specified_style.get(Property.FONT)
+        font_size = node.specified_style.get(Property.FONT_SIZE)
+        assert font and font_size
+
+        self.absolutize_font_size(node, val, vw, h)
+
+    # ============================== Compute Default Helpers ============================== #
 
     def inherit_property(self, node: Node, prop: Property) -> None:
-        if node.parent and (val := node.parent.style.get(prop)):
-            node.style[prop] = val
+        if node.parent and (val := node.parent.computed_style.get(prop)):
+            node.specified_style[prop] = val
         # elif not node.parent:
         #     self.initial_property(node, prop)
 
     # TODO: finish property/value parser so this doesn't immediately crash everything
     def initial_property(self, node: Node, prop: Property) -> None:
         if init := property_initial_value(prop):
-            node.style[prop] = init
+            node.specified_style[prop] = init
+
+    # ============================== Absolutize Value Helpers ============================== #
+
+    def compute_root_font_size(self, root_node: Node, preferred_font_size_px: int):
+        if Property.FONT_SIZE in root_node.specified_style:
+            length = size = root_node.specified_style[Property.FONT_SIZE]
+
+            if isinstance(size, KeywordValue):
+                # is relative size keyword [smaller | larger]
+                # compute size against preferred_font_size
+                if kw := keyword_to_keyword_group_keyword(size.keyword, RelativeSize):
+                    if kw == RelativeSize.SMALLER:
+                        smaller = smaller_size(preferred_font_size_px)
+                        length = LengthValue(Length.from_px(smaller))
+                    else:
+                        larger = larger_size(preferred_font_size_px)
+                        length = LengthValue(Length.from_px(larger))
+
+                # is absolute size keyword [x-small, normal, large, xxx-large, etc]
+                elif kw := keyword_to_keyword_group_keyword(size.keyword, AbsoluteSize):
+                    assert isinstance(kw, AbsoluteSize)
+                    length = LengthValue(Length.from_px(FONT_SIZE_SCALING_TABLE[kw]))
+
+            elif isinstance(size, PercentageValue):
+                # resolve to px immediately
+                length = LengthValue(
+                    Length.from_px(preferred_font_size_px / size.percentage)
+                )
+
+            root_node.computed_style[Property.FONT_SIZE] = length
+
+    def absolutize_font_size(self, )
+
+    # def absolutize_length(self, node: Node, val, prop) -> dict[Property, StyleValue]:
+    #     resolve_after_em: dict[Property, StyleValue] = {}
+
+    #     if val.length.unit == LengthUnit.EM:
+    #         if prop != Property.FONT_SIZE:
+    #             resolve_after_em[prop] = val
+    #         else:
+    #             self.inherit_property(node, prop)
+    #             parent_font_size = node.specified_style.get(Property.FONT_SIZE)
+    #             assert isinstance(
+    #                 parent_font_size, Length
+    #             ), "Failed to inherit font-size property"
+    #             assert parent_font_size.unit == LengthUnit.PX
+
+    #             px = parent_font_size.value
+    #             node.computed_style[Property.FONT_SIZE] = LengthValue(
+    #                 Length.from_px(px * val.length.value)
+    #             )
+
+    #     return resolve_after_em
 
     def print_tree(self) -> None:
         def recurse(node: Node):
@@ -151,7 +247,7 @@ class StyleComputer:
             elif isinstance(node, Text):
                 log(f"'{node.text}':")
 
-            for key, val in node.style.items():
+            for key, val in node.computed_style.items():
                 log(f"    {key.value} = {val};")
 
             for child in node.children:
