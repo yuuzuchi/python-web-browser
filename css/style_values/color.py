@@ -191,8 +191,8 @@ class Color:
     @classmethod
     def from_str(cls, string: str) -> "Color":
         if string.lower() in NAMED_COLOR_MAP:
-            r, g, b = NAMED_COLOR_MAP[string]
-            return Color(r, g, b)
+            rgb_optional_a = NAMED_COLOR_MAP[string]
+            return Color(*rgb_optional_a)
 
     @property
     def red(self):

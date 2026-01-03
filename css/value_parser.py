@@ -1,3 +1,5 @@
+from css.style_values.dimension import TimeValue
+from log import warn, log
 from css.style_values.dimension import Length
 from css.units import LengthUnit
 from css.lexer import Num
@@ -6,16 +8,16 @@ from css.style_values.base import StyleValue
 from css.style_values.keyword import KeywordValue
 from css.style_values.numeric import NumberValue, IntegerValue
 from css.style_values.string import StringValue
-from css.style_values.url import URLValue
 from css.style_values.color import Color, ColorValue
 from css.style_values.shape import BasicShapeValue, BasicShape
 from css.style_values.dimension import (
     PercentageValue,
-    TimeValue,
     AngleValue,
     LengthValue,
 )
 from css.style_values.anchor import AnchorSizeValue, AnchorValue
+from css.style_values.paint import PaintValue
+from css.style_values.url import URLValue
 from css.lexer import Tok
 from css.components import Function
 from css.property import keyword_to_keyword_group_keyword
@@ -36,7 +38,6 @@ class ValueParser:
         self.property = property
 
     def parse(self, type: ValueType) -> StyleValue | None:
-        print(f"parse: {type}")
         match type:
             case ValueType.ANCHOR:
                 return self.parse_anchor_value()
@@ -86,8 +87,8 @@ class ValueParser:
             #     return self.parse_opacity_value()
             # case ValueType.OPENTYPE_TAG:
             #     return self.parse_opentype_tag_value()
-            # case ValueType.PAINT:
-            #     return self.parse_paint_value()
+            case ValueType.PAINT:
+                return self.parse_paint_value()
             case ValueType.PERCENTAGE:
                 return self.parse_percentage_value()
             # case ValueType.POSITION:
@@ -100,8 +101,8 @@ class ValueParser:
             #     return self.parse_resolution_value()
             case ValueType.STRING:
                 return self.parse_string_value()
-            # case ValueType.TIME:
-            #     return self.parse_time_value()
+            case ValueType.TIME:
+                return self.parse_time_value()
             # case ValueType.TIME_PERCENTAGE:
             #     return self.parse_time_percentage_value()
             # case ValueType.TRANSFORM_FUNCTION:
@@ -111,8 +112,9 @@ class ValueParser:
             # case ValueType.URL:
             #     return self.parse_url_value()
             case _:
-                # err("nonexistant value type")
-                raise AssertionError("nonexistant value type")
+                pass
+                # warn(f"nonexistant value type {type}")
+                # raise AssertionError("nonexistant value type")
 
     def parse_keyword_value(self) -> KeywordValue | None:
         keyword = self.stream.peek()
@@ -326,6 +328,7 @@ class ValueParser:
                     return LengthValue(Length(float(tok.val), LengthUnit(tok.dim_unit)))
 
             if tok.type == Tok.PERCENTAGE and tok.val:
+                tx.commit()
                 return PercentageValue(float(tok.val))
 
             if tok.type == Tok.NUMBER:
@@ -356,9 +359,49 @@ class ValueParser:
     #     self.stream.consume()
     #     return OpentypeTagValue()
 
-    # def parse_paint_value(self) -> PaintValue:
-    #     self.stream.consume()
-    #     return PaintValue()
+    def parse_paint_value(self) -> PaintValue | None:
+        # <paint> = none | <color> | <url> [none | <color>]? | context-fill | context-stroke
+        with self.stream.transaction() as tx:
+            tok = self.stream.peek()
+
+            # Check for keyword values: none, context-fill, context-stroke
+            if tok.type == Tok.IDENT and tok.val:
+                keyword_lower = tok.val.lower()
+                if keyword_lower in ("none", "context-fill", "context-stroke"):
+                    self.stream.consume()
+                    tx.commit()
+                    return PaintValue(KeywordValue(tok.val))
+
+            # Check for URL value: <url> [none | <color>]?
+            if tok.type == Tok.URL and tok.val is not None:
+                self.stream.consume()
+                url_value = URLValue(tok.val)  # URL object resolved later
+
+                # Check for optional fallback: [none | <color>]?
+                fallback = None
+                self.stream.consume_whitespace()
+
+                if self.stream.has_next():
+                    next_tok = self.stream.peek()
+                    # Check for 'none' keyword fallback
+                    if (
+                        next_tok.type == Tok.IDENT
+                        and next_tok.val
+                        and next_tok.val.lower() == "none"
+                    ):
+                        self.stream.consume()
+                        fallback = KeywordValue("none")
+                    else:
+                        # Try to parse a color fallback
+                        fallback = self.parse_color_value()
+
+                tx.commit()
+                return PaintValue(url_value, fallback)
+
+            # Check for <color> value
+            if color := self.parse_color_value():
+                tx.commit()
+                return PaintValue(color)
 
     def parse_percentage_value(self) -> PercentageValue | None:
         tok = self.stream.peek()
@@ -390,9 +433,13 @@ class ValueParser:
             self.stream.consume()
             return StringValue(tok.val)
 
-    # def parse_time_value(self) -> TimeValue:
-    #     self.stream.consume()
-    #     return TimeValue()
+    def parse_time_value(self) -> TimeValue | None:
+        tok = self.stream.peek()
+        if tok.type == Tok.DIMENSION:
+            if tok.dim_unit and tok.dim_unit.lower() in ("ms", "s"):
+                self.stream.consume()
+                assert isinstance(tok.val, int)
+                return TimeValue(float(tok.val), tok.dim_unit)
 
     # def parse_time_percentage_value(self) -> TimePercentageValue:
     #     self.stream.consume()

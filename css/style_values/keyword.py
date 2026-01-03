@@ -9,6 +9,7 @@ class KeywordValue(StyleValue):
     keyword_str: str
 
     def __post_init__(self):
+        self.keyword_str = self.keyword_str.lower()
         self.keyword = Keyword(self.keyword_str)
 
     def to_token(self) -> Token:

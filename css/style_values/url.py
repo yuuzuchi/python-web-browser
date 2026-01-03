@@ -6,8 +6,8 @@ from .base import StyleValue
 @dataclass
 class URLValue(StyleValue):
     url_str: str
-    url: URL
-    # parser is responsible for passing both the original value and the resolveed URL object
+    url: URL | None = None
+    # parser may initially pass only url_str; url can be resolved later with base URL context
 
     def to_token(self) -> Token:
         return Token(type=Tok.URL, val=self.url_str)

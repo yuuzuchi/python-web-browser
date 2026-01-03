@@ -8,7 +8,7 @@ from css.style_values.base import StyleValue
 _initial_value_cache = {}
 
 
-def property_initial_value(property: Property) -> StyleValue:
+def property_initial_value(property: Property) -> StyleValue | None:
     # initial value for property cache hit
     if property in _initial_value_cache:
         return _initial_value_cache[property]
@@ -17,7 +17,9 @@ def property_initial_value(property: Property) -> StyleValue:
     property_as_string = property.value
     initial_value_as_string = PROPERTIES.get(property_as_string, {}).get("initial")
 
-    assert initial_value_as_string
+    # Property has no initial value
+    if not initial_value_as_string:
+        return
 
     # tokenize as a css value
     # FIXME: there is no CSSSyntaxParser.parse_css_value(),
@@ -35,4 +37,4 @@ def property_initial_value(property: Property) -> StyleValue:
         _initial_value_cache[property] = out
         return out
 
-    raise AssertionError("fCould not parse intial value for property {property}")
+    # raise AssertionError(f"Could not parse intial value for property {property}")

@@ -2773,7 +2773,7 @@ def keyword_group_to_keywords(kw_group: str) -> dict[Keyword, KeywordGroup]:
 def keyword_to_keyword_group_keyword(
     keyword: Keyword, group: Type[Enum]
 ) -> Enum | None:
-    """ex: (Keyword::INSIDE, group=AnchorSide) -> AnchorSide::INSIDE"""
+    """ex: (Keyword.INSIDE, group=AnchorSide) -> AnchorSide.INSIDE"""
     if keyword.value in group._value2member_map_:
         return group(keyword.value)
 
@@ -2923,7 +2923,7 @@ def property_accepts_length(property: Property, length: float) -> bool:
     return False
 
 
-def property_accepts_time(property: Property, time: int) -> bool:
+def property_accepts_time(property: Property, time: float) -> bool:
     valid_types = PROPERTIES.get(property.value, {}).get("valid-types", [])
     assert isinstance(valid_types, list)
     for t in valid_types:

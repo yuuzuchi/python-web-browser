@@ -58,6 +58,7 @@ VALUE_TYPE_PRECEDENCE = [
     ValueType.FLEX,
     ValueType.FREQUENCY,
     ValueType.FIT_CONTENT,
+    ValueType.LENGTH,
     ValueType.RESOLUTION,
     ValueType.TIME,
     ValueType.PERCENTAGE,
@@ -123,7 +124,7 @@ class PropertyParser:
             res = self.parse_positional_value_list_shorthand(property)
             if res and not self.stream.has_next():
                 return res
-            return self.parse_error("Failed to parse positional value list shorthand")
+            return None  # self.parse_error("Failed to parse positional value list shorthand")
 
         # 5. single-property value lists
         with self.stream.transaction() as tx:
@@ -200,7 +201,7 @@ class PropertyParser:
                 return keyword
 
         if not (accepted_types := property_accepted_types(property)):
-            err(f"{property} accepts no value types!")
+            # err(f"{property} accepts no value types!")
             return
 
         for t in VALUE_TYPE_PRECEDENCE:
@@ -335,7 +336,7 @@ class PropertyParser:
                         if value := self.value_parser.parse_time_percentage_value():
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
-                                isinstance(value, TimeValue) and property_accepts_time(property, value.time)) or (
+                                isinstance(value, TimeValue) and property_accepts_time(property, value.raw_value)) or (
                                 isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage)
                             ):  # fmt: on
                                 tx.commit()
@@ -344,7 +345,7 @@ class PropertyParser:
                     if value := self.value_parser.parse_time_value():
                         if isinstance(value, CalculatedValue) or (
                             isinstance(value, TimeValue)
-                            and property_accepts_time(property, value.time)
+                            and property_accepts_time(property, value.raw_value)
                         ):
                             tx.commit()
                             return value

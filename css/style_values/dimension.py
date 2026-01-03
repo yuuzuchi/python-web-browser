@@ -73,6 +73,21 @@ class Length:
     def from_px(cls, px: float) -> "Length":
         return Length(px, unit=LengthUnit.PX)
 
+    def to_px(self) -> "Length":
+        if self.unit == LengthUnit.IN:
+            return Length(self.value * 96, unit=LengthUnit.PX)
+        if self.unit == LengthUnit.CM:
+            return Length(self.value * 37.8, unit=LengthUnit.PX)
+        if self.unit == LengthUnit.MM:
+            return Length(self.value * 3.78, unit=LengthUnit.PX)
+        if self.unit == LengthUnit.PT:
+            return Length(self.value * 4 / 3, unit=LengthUnit.PX)
+        if self.unit == LengthUnit.PC:
+            return Length(self.value * 16, unit=LengthUnit.PX)
+        if self.unit == LengthUnit.Q:
+            return Length(self.value * 0.944, unit=LengthUnit.PX)
+        return self  # px value
+
 
 @dataclass
 class LengthValue(DimensionValue):

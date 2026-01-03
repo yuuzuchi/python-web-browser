@@ -1,3 +1,4 @@
+from css.computed_style import ComputedStyle
 from url import URL
 from css.enums import Property
 from css.style_values.base import StyleValue
@@ -7,8 +8,15 @@ class Node:
     def __init__(self, parent):
         self.parent: Element = parent
         self.children: list["Node"] = []
-        self.computed_style: dict[Property, StyleValue] = {}
+        self.computed_style: ComputedStyle = ComputedStyle()
         self.specified_style: dict[Property, StyleValue] = {}
+
+    def get_root(self) -> "Node":
+        """Walks the tree up towards the root HTML element and returns it"""
+        cur = self
+        while cur.parent:
+            cur = cur.parent
+        return cur
 
 
 class Text(Node):

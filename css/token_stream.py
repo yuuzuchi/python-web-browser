@@ -1,5 +1,5 @@
 from css.lexer import Tok, Token
-
+from log import log
 
 class CSSTokenStream:
     def __init__(self, tokens: list[Token]):

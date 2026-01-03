@@ -1,27 +1,32 @@
-from css.style_values.base import StyleValue
-from css.units import LengthUnit
-from css.style_values.dimension import PercentageValue
-from css.enums import larger_size
-from css.enums import smaller_size
-from css.style_values.dimension import Length
-from css.style_values.dimension import LengthValue
-from css.enums import FONT_SIZE_SCALING_TABLE
-from css.enums import AbsoluteSize
-from css.enums import RelativeSize
-from css.property import keyword_to_keyword_group_keyword
-from css.property import property_is_inherited
-from css.style_values.keyword import KeywordValue
+from dom import Document, Node, Element, Text
+from font_cache import get_font
 from history import HistoryManager
+from css.style_values.numeric import NumberValue
+from css.style_values.string import StringValue
+from css.style_values.custom_ident import CustomIdentValue
+from css.style_values.list import ListStyleValue
+from css.units import LengthUnit
+from css.style_values.dimension import PercentageValue, Length, LengthValue
+from css.enums import (
+    FONT_SIZE_SCALING_TABLE,
+    AbsoluteSize,
+    RelativeSize,
+    Keyword,
+    Origin,
+    Property,
+    larger_size,
+    smaller_size,
+)
+from css.property import keyword_to_keyword_group_keyword, property_is_inherited
+from css.style_values.keyword import KeywordValue
 from css.selector_matcher import SelectorMatcher
 from css.selector_index import SelectorIndex
 from css.stylesheet import CSSStylesheet
 from css.style_rule import StyleRule
 from css.parser import CSSSyntaxParser
-from dom import Document, Node, Element, Text
-from css.enums import Keyword, Origin, Property
 from css.parse_context import ParseContext
 from css.initial_value_cache import property_initial_value
-from log import log, set_debug
+from log import log, set_debug, warn
 
 """
 This class is responsible for cascading and inheritance, and calculating the `Actual Values` for each DOM node. 
@@ -46,30 +51,34 @@ TODO:
 
 
 class StyleComputer:
+
     def __init__(
         self,
         DOM: Document,
         stylesheets: list[CSSStylesheet],
         history_manager: HistoryManager,
+        vw: int,
+        vh: int,
+        preferred_font_size: int = 16,
     ):
         self.selector_index = SelectorIndex()
         self.selector_matcher = SelectorMatcher(history_manager)
         self.stylesheets = stylesheets
+        self.vw = vw
+        self.vh = vh
         self.DOM = DOM
+        self.preferred_font_size = preferred_font_size
 
     # ================================= Primary Methods ================================= #
 
-    def style_tree(self, vw: int, vh: int) -> None:
+    def style_tree(self) -> None:
         # build our index
         for stylesheet in self.stylesheets:
             self.selector_index.build_index_for_rules(stylesheet.rules)
 
-        # compute root <html>'s font size
-        root_node = self.DOM.document_element
-        self.compute_root_font_size(root_node, preferred_font_size_px=16)
-
         # recursively style nodes
         def recurse(node: Node):
+            log("Styling:", node)
             # filter, match, cascade
             self.match_and_cascade(node)
 
@@ -77,11 +86,12 @@ class StyleComputer:
             self.compute_defaults(node)
 
             # resolving
-            self.absolutize_values(node, vw, vh)
+            self.absolutize_values(node)
 
-        recurse(root_node)
+            for child in node.children:
+                recurse(child)
 
-        self.print_tree()
+        recurse(self.DOM.document_element)
 
     def match_and_cascade(self, node: Node) -> None:
         """For an element in the DOM, produce a list of candidate rules through selector matching.
@@ -132,7 +142,7 @@ class StyleComputer:
         # TODO: provide lazy compute method
         for prop in Property:
             if val := node.specified_style.get(prop):
-                if isinstance(val, KeywordValue) and val.is_css_wide:
+                if isinstance(val, KeywordValue) and val.is_css_wide():
                     # https://drafts.csswg.org/css-cascade-5/#defaulting-keywords
                     if val.keyword == Keyword.INHERIT:
                         self.inherit_property(node, prop)
@@ -149,106 +159,259 @@ class StyleComputer:
                         pass
                         # TODO: need to store origin of each property
 
+                # if here, node already has prop in specified values, do nothing
+
             elif property_is_inherited(prop):
                 self.inherit_property(node, prop)
+            else:
+                self.initial_property(node, prop)
 
     # https://drafts.csswg.org/css-cascade-5/#computed
-    def absolutize_values(self, node: Node, vw: int, vh: int):
+    def absolutize_values(self, node: Node):
         """
         Absolutize the following values IN ORDER, converting from **specified** to **computed** property
         - TODO: custom idents (var(--hello))
         - font-family/font-size
         - values with relative units (em, ex, vh, vw)
         - smaller, bolder keywords
-        - percentage values on font-size and line-height
+        - percentage values on line-height
         - relative URLs
         """
 
         # TODO: custom ident
 
-        # em/ex unit: font size must be resolved before other properties,
-        # since em on other properties are resolved against the same node's font size
-        font = node.specified_style.get(Property.FONT)
-        font_size = node.specified_style.get(Property.FONT_SIZE)
-        assert font and font_size
-
-        self.absolutize_font_size(node, val, vw, h)
+        # compute font first
+        self.compute_font(node)
 
     # ============================== Compute Default Helpers ============================== #
 
     def inherit_property(self, node: Node, prop: Property) -> None:
         if node.parent and (val := node.parent.computed_style.get(prop)):
             node.specified_style[prop] = val
-        # elif not node.parent:
-        #     self.initial_property(node, prop)
+        elif not node.parent:
+            self.initial_property(node, prop)
 
     # TODO: finish property/value parser so this doesn't immediately crash everything
     def initial_property(self, node: Node, prop: Property) -> None:
-        if init := property_initial_value(prop):
+        # log("Initial value for", prop, end=": ")
+        init = property_initial_value(prop)
+        if init:
             node.specified_style[prop] = init
+        # log(init)
 
     # ============================== Absolutize Value Helpers ============================== #
 
-    def compute_root_font_size(self, root_node: Node, preferred_font_size_px: int):
-        if Property.FONT_SIZE in root_node.specified_style:
-            length = size = root_node.specified_style[Property.FONT_SIZE]
+    def compute_font(self, node: Node) -> None:
+        assert node.specified_style.get(Property.FONT_FAMILY)
+        assert node.specified_style.get(Property.FONT_SIZE)
 
-            if isinstance(size, KeywordValue):
-                # is relative size keyword [smaller | larger]
-                # compute size against preferred_font_size
-                if kw := keyword_to_keyword_group_keyword(size.keyword, RelativeSize):
-                    if kw == RelativeSize.SMALLER:
-                        smaller = smaller_size(preferred_font_size_px)
-                        length = LengthValue(Length.from_px(smaller))
-                    else:
-                        larger = larger_size(preferred_font_size_px)
-                        length = LengthValue(Length.from_px(larger))
+        style = node.computed_style.styles
 
-                # is absolute size keyword [x-small, normal, large, xxx-large, etc]
-                elif kw := keyword_to_keyword_group_keyword(size.keyword, AbsoluteSize):
-                    assert isinstance(kw, AbsoluteSize)
-                    length = LengthValue(Length.from_px(FONT_SIZE_SCALING_TABLE[kw]))
+        font_size = style[Property.FONT_SIZE] = self.compute_font_size(node)
+        font_weight = style[Property.FONT_WEIGHT] = self.compute_font_weight(node)
+        style[Property.FONT_WIDTH] = node.specified_style[Property.FONT_WIDTH]
+        font_style = style[Property.FONT_STYLE] = node.specified_style[
+            Property.FONT_STYLE
+        ]
+        style[Property.FONT_VARIATION_SETTINGS] = node.specified_style[
+            Property.FONT_VARIATION_SETTINGS
+        ]
+        style[Property.LINE_HEIGHT] = self.compute_line_height(node)
+        style[Property.FONT_FAMILY] = node.specified_style[Property.FONT_FAMILY]
 
-            elif isinstance(size, PercentageValue):
-                # resolve to px immediately
-                length = LengthValue(
-                    Length.from_px(preferred_font_size_px / size.percentage)
-                )
+        # generate a tkinter font
+        # this technically should be a list, but there's no way to check if a font can display a certain character anyways
+        # so fallbacks are not necessary
+        families = style[Property.FONT_FAMILY]
+        assert isinstance(families, ListStyleValue)
+        for font in families.items:
+            # font-family = <CustomIdentValue> | <StringValue>
+            tk_font_family = "Segoe UI"
+            if isinstance(font, CustomIdentValue):
+                tk_font_family = font.ident
+            elif isinstance(font, StringValue):
+                tk_font_family = font.string
 
-            root_node.computed_style[Property.FONT_SIZE] = length
+            # convert font_size px -> pt for tkinter font
+            tk_font_size = int(font_size.length.value * 0.75)
+            assert isinstance(font_style, KeywordValue)
+            tk_font_style = (
+                "italic"
+                if font_style.keyword in (Keyword.ITALIC, Keyword.OBLIQUE)
+                else "roman"
+            )
 
-    def absolutize_font_size(self, )
+            if (
+                isinstance(font_weight, KeywordValue)
+                and font_weight.keyword == Keyword.BOLD
+            ):
+                tk_font_weight = "bold"
+            else:
+                tk_font_weight = "normal"
 
-    # def absolutize_length(self, node: Node, val, prop) -> dict[Property, StyleValue]:
-    #     resolve_after_em: dict[Property, StyleValue] = {}
+            # verify that tkinter created the right font
+            font = get_font(tk_font_family, tk_font_size, tk_font_style, tk_font_weight)
+            if font.cget("family").lower() == tk_font_family.lower():
+                node.computed_style.font = font
+                break
 
-    #     if val.length.unit == LengthUnit.EM:
-    #         if prop != Property.FONT_SIZE:
-    #             resolve_after_em[prop] = val
-    #         else:
-    #             self.inherit_property(node, prop)
-    #             parent_font_size = node.specified_style.get(Property.FONT_SIZE)
-    #             assert isinstance(
-    #                 parent_font_size, Length
-    #             ), "Failed to inherit font-size property"
-    #             assert parent_font_size.unit == LengthUnit.PX
+        assert node.computed_style.font
 
-    #             px = parent_font_size.value
-    #             node.computed_style[Property.FONT_SIZE] = LengthValue(
-    #                 Length.from_px(px * val.length.value)
-    #             )
+    def compute_font_size(self, node: Node) -> LengthValue:
+        """Computes font size pixel value"""
+        assert (
+            Property.FONT_SIZE in node.specified_style
+        ), "Error while absolutizing font size: Font size not found in specified properties"
 
-    #     return resolve_after_em
+        specified = node.specified_style[Property.FONT_SIZE]
 
-    def print_tree(self) -> None:
+        # absolutize length unit (rem, em, vh, vw, vi, vb, ex)
+        if isinstance(specified, LengthValue) and (
+            absolutized := self.absolutize_length(
+                node, specified, prop_is_font_size=True
+            )
+        ):
+            return absolutized
+
+        elif isinstance(specified, KeywordValue):
+            # is relative size keyword [smaller | larger]
+            # compute size against parent, or preferred_font_size if is root node
+            if kw := keyword_to_keyword_group_keyword(specified.keyword, RelativeSize):
+                if node.parent:
+                    parent_size = node.parent.computed_style.get(Property.FONT_SIZE)
+                    assert isinstance(parent_size, LengthValue)
+                    base_size = parent_size.length.value
+                else:
+                    base_size = self.preferred_font_size
+
+                if kw == RelativeSize.SMALLER:
+                    smaller = smaller_size(base_size=base_size)
+                    return LengthValue(Length.from_px(smaller))
+                elif kw == RelativeSize.LARGER:
+                    larger = larger_size(base_size=base_size)
+                    return LengthValue(Length.from_px(larger))
+
+            # is absolute size keyword [x-small, normal, large, xxx-large, etc]
+            elif kw := keyword_to_keyword_group_keyword(
+                specified.keyword, AbsoluteSize
+            ):
+                assert isinstance(kw, AbsoluteSize)
+                return LengthValue(Length.from_px(FONT_SIZE_SCALING_TABLE[kw]))
+            assert False, f"Unrecognized Keyword {specified} for font-size"
+
+        elif isinstance(specified, PercentageValue):
+            # resolve to px immediately
+            base_px = self._get_base_font_size_px(node, True, not node.parent)
+            return LengthValue(Length.from_px(base_px * specified.percentage))
+
+        else:
+            # value is already absolute (e.g. font-size: 16px;)
+            assert isinstance(specified, LengthValue)
+            return LengthValue(specified.length.to_px())
+
+    def _get_base_font_size_px(
+        self, node: Node, prop_is_font_size: bool, from_root: bool = False
+    ) -> float:
+        """Get the base font size in pixels for em/rem calculations."""
+        if prop_is_font_size:
+            if not node.parent:
+                return float(self.preferred_font_size)
+
+            if from_root:
+                base_font_size = node.get_root().computed_style.get(Property.FONT_SIZE)
+            else:
+                base_font_size = node.parent.computed_style.get(Property.FONT_SIZE)
+        else:
+            # for non-font-size properties, use current node's font size
+            base_font_size = node.computed_style.get(Property.FONT_SIZE)
+
+        assert isinstance(base_font_size, LengthValue)
+        assert base_font_size.length.unit == LengthUnit.PX
+        return base_font_size.length.value
+
+    def compute_font_weight(self, node: Node) -> KeywordValue:
+        font_weight = node.specified_style.get(Property.FONT_WEIGHT)
+        assert font_weight, "Font weight not found in specified properties"
+
+        if isinstance(font_weight, KeywordValue):
+            if font_weight.keyword in (Keyword.BOLD, Keyword.NORMAL):
+                return font_weight
+
+        # TODO: number values, Lighter, Bolder (tkinter doesn't support any of these anyways)
+        return KeywordValue("normal")
+
+    def compute_line_height(
+        self, node: Node
+    ) -> KeywordValue | NumberValue | LengthValue:
+        specified = node.specified_style[Property.LINE_HEIGHT]
+        if isinstance(specified, KeywordValue) and specified.keyword == Keyword.NORMAL:
+            return specified
+
+        if isinstance(specified, (NumberValue, LengthValue)):
+            return specified
+
+        if isinstance(specified, PercentageValue):
+            # by now, font size will have already been computed
+            font_size = node.computed_style.get(Property.FONT_SIZE)
+            assert isinstance(font_size, LengthValue)
+            length = Length.from_px(font_size.raw_value * specified.percentage)
+            return LengthValue(length)
+
+        assert False
+
+    def absolutize_length(
+        self, node: Node, val: LengthValue, prop_is_font_size: bool = False
+    ) -> LengthValue | None:
+        """Converts a LengthValue from a **relative** length to an **absolute** length.
+        `prop_is_font_size` affects computing for (r)em / ex / viewport values. For example,
+        `font-size: 1.5em;` requires inheriting computed font size from parent, whereas
+        `border-width: 1.5em;` looks at the current node's computed font-size.
+
+        Units include: rem, em, ex, cap, ch, ic, ih, ...
+        """
+        unit = val.length.unit
+        value = val.length.value
+
+        if unit == LengthUnit.PX:
+            return val
+
+        # EM and REM units
+        if unit == LengthUnit.EM:
+            base_px = self._get_base_font_size_px(
+                node, prop_is_font_size, from_root=False
+            )
+            return LengthValue(Length.from_px(base_px * value))
+
+        if unit == LengthUnit.REM:
+            base_px = self._get_base_font_size_px(
+                node, prop_is_font_size, from_root=True
+            )
+            return LengthValue(Length.from_px(base_px * value))
+
+        # viewport units
+        if unit == LengthUnit.VW or unit == LengthUnit.VI:
+            # TODO: writing direction context so VI/VB actually work
+            px = self.vw * value
+            return LengthValue(Length.from_px(px))
+
+        if unit == LengthUnit.VH or unit == LengthUnit.VB:
+            px = self.vh * value
+            return LengthValue(Length.from_px(px))
+
+        # TODO: other relative units
+        warn(f"{unit} needs to be implemented")
+        return None
+
+    def print_tree(self, prop: Property | None = None) -> None:
         def recurse(node: Node):
             if isinstance(node, Element):
                 log(f"{node.tag}:")
             elif isinstance(node, Text):
                 log(f"'{node.text}':")
 
-            for key, val in node.computed_style.items():
-                log(f"    {key.value} = {val};")
+            for key, val in node.computed_style.styles.items():
+                if not prop or key == prop:
+                    log(f"    {key.value} = {val};")
 
             for child in node.children:
                 recurse(child)
@@ -257,6 +420,11 @@ class StyleComputer:
 
 
 if __name__ == "__main__":
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.withdraw()
+
     set_debug()
     from html_parser import HTMLParser
     from css.parser import CSSSyntaxParser
@@ -269,7 +437,7 @@ if __name__ == "__main__":
         <body>
             <h1>Title</h1>
             <div class="test">
-                <p id="p">Hello World</p>
+                <p id="p">p_inside</p>
                 <a href="https://example.com">Link</a>
             </div>
             <ul>
@@ -290,6 +458,7 @@ if __name__ == "__main__":
 
     div.test{
         color: orange !important;
+        font-size: 33px;
     }
 
     #p {
@@ -315,5 +484,7 @@ if __name__ == "__main__":
     # if one important, the important one wins
 
     history = HistoryManager()
-    computer = StyleComputer(doc, [stylesheet, stylesheet2], history)
+    print("Styling:")
+    computer = StyleComputer(doc, [stylesheet, stylesheet2], history, vw=800, vh=600)
     computer.style_tree()
+    computer.print_tree()

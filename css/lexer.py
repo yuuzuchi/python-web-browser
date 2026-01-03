@@ -127,12 +127,15 @@ class Token:
             case _:
                 pass
 
-    def is_ident(self, val: str, case_insensitive=True):
+    def is_ident(self, val: str, case_insensitive=True) -> bool:
+        if not isinstance(self.val, str):
+            return False
+
         return self.type == Tok.IDENT and (
             self.val.lower() == val.lower() if case_insensitive else self.val == val
         )
 
-    def is_delim(self, delim: str):
+    def is_delim(self, delim: str) -> bool:
         return self.type == Tok.DELIM and self.val == delim
 
 
@@ -150,7 +153,7 @@ class Lexer:
             if tok.type == Tok.EOF:
                 return res
 
-    def next_char(self) -> str:
+    def next_char(self) -> str | None:
         if self.i < len(self.s):
             self.i += 1
             return self.s[self.i - 1]
@@ -411,14 +414,14 @@ class Lexer:
         num, t = self.consume_number()
         if self.next_3_starts_ident():
             dimension_tok = Token(Tok.DIMENSION, num, num_type=t, dim_unit="")
-            dimension_tok.unit = self.consume_ident_seq()
+            dimension_tok.dim_unit = self.consume_ident_seq()
             return dimension_tok
         elif self.peek(0) == "%":
             self.next_char()
             return Token(Tok.PERCENTAGE, num)
         return Token(Tok.NUMBER, num, num_type=t)
 
-    def consume_number(self) -> tuple[str, Num]:
+    def consume_number(self) -> tuple[int, Num]:
         t = Num.INTEGER
         res = []
 

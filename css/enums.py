@@ -1023,18 +1023,19 @@ FONT_SIZE_SCALING_TABLE = {
 
 FONT_SIZE_STEPS = [9, 10, 13, 16, 18, 24, 32, 48]
 
-def larger_size(parent_size: int):
-    for size in FONT_SIZE_STEPS:
-        if size > parent_size:
-            return size
-    return parent_size * 1.2
 
-def smaller_size(parent_size: int):
+def larger_size(base_size: float):
+    for size in FONT_SIZE_STEPS:
+        if size > base_size:
+            return size
+    return base_size * 1.2
+
+
+def smaller_size(base_size: float):
     for size in reversed(FONT_SIZE_STEPS):
-        if size < parent_size:
+        if size < base_size:
             return size
     return 9 # FIXME: decide whether to avoid smaller than 9px fonts
-
 
 
 class AlignContent(KeywordGroup, Enum):
@@ -1870,10 +1871,6 @@ class TextAlign(KeywordGroup, Enum):
     LEFT = "left"
     RIGHT = "right"
     MATCH_PARENT = "match-parent"
-    LIBWEB_CENTER = "libweb-center"
-    LIBWEB_INHERIT_OR_CENTER = "libweb-inherit-or-center"
-    LIBWEB_LEFT = "libweb-left"
-    LIBWEB_RIGHT = "libweb-right"
 
 
 class TextAnchor(KeywordGroup, Enum):
