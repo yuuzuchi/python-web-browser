@@ -209,19 +209,16 @@ class PropertyParser:
                 continue
 
             if t in SIMPLE_TYPES:
-                # self.value_parser.set_context(self.stream, t)
                 if value := self.value_parser.parse(t):
                     return value
 
             # range check, and integer/number comes before length (0 should be int/number if both allowed)
             elif t == ValueType.INTEGER:
-                # self.value_parser.set_context(self.e
                 if value := self.value_parser.parse_integer_value():
                     if property_accepts_integer(property, value.int_value):
                         return value
 
             elif t == ValueType.NUMBER:
-                # self.value_parser.set_context(self.stream, t)
                 with self.stream.transaction() as tx:
                     if value := self.value_parser.parse_number_value():
                         if property_accepts_number(property, value.num_value):
@@ -231,9 +228,6 @@ class PropertyParser:
             elif t == ValueType.ANGLE:
                 with self.stream.transaction() as tx:
                     if ValueType.PERCENTAGE in accepted_types:
-                        # self.value_parser.set_context(
-                        #     self.stream, ValueType.ANGLE_PERCENTAGE
-                        # )
                         if value := self.value_parser.parse_angle_percentage_value():
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
@@ -307,7 +301,6 @@ class PropertyParser:
                             ):  # fmt: on
                                 tx.commit()
                                 return value
-
                     if value := self.value_parser.parse_length_value():
                         if isinstance(value, CalculatedValue) or (
                             isinstance(value, LengthValue)
@@ -369,7 +362,7 @@ class PropertyParser:
                 if value := self.value_parser.parse_anchor_value():
                     return value
 
-            return None
+        return None
 
     def parse_value_for_properties(
         self, properties: list[Property]
@@ -590,7 +583,7 @@ if __name__ == "__main__":
     declaration = """
     
     font: normal normal bold smaller/1.5 "Arial";
-    /*font-style: normal;*/
+    /*line-height: 1px;*/
     
     """
     toks = Lexer(declaration).parse()
@@ -604,6 +597,7 @@ if __name__ == "__main__":
     parser = PropertyParser(val)
     out = parser.parse_entire_value(prop)
     log("\nOutput Style Value:", out)
+    log("Output Style Type:", type(out))
 
     # initial = parser.property_initial_value(prop)
     # log(f"Initial value for {prop}: {initial}")

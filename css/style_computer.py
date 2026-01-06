@@ -1,3 +1,4 @@
+from css.style_values.shorthand import ShorthandStyleValue
 from dom import Document, Node, Element, Text
 from font_cache import get_font
 from history import HistoryManager
@@ -5,8 +6,9 @@ from css.style_values.numeric import NumberValue
 from css.style_values.string import StringValue
 from css.style_values.custom_ident import CustomIdentValue
 from css.style_values.list import ListStyleValue
-from css.units import LengthUnit
 from css.style_values.dimension import PercentageValue, Length, LengthValue
+from css.style_values.keyword import KeywordValue
+from css.units import LengthUnit
 from css.enums import (
     FONT_SIZE_SCALING_TABLE,
     AbsoluteSize,
@@ -18,7 +20,6 @@ from css.enums import (
     smaller_size,
 )
 from css.property import keyword_to_keyword_group_keyword, property_is_inherited
-from css.style_values.keyword import KeywordValue
 from css.selector_matcher import SelectorMatcher
 from css.selector_index import SelectorIndex
 from css.stylesheet import CSSStylesheet
@@ -26,7 +27,9 @@ from css.style_rule import StyleRule
 from css.parser import CSSSyntaxParser
 from css.parse_context import ParseContext
 from css.initial_value_cache import property_initial_value
-from log import log, set_debug, warn
+from log import log, set_debug
+from css.style_values.dimension import FontMetrics, LengthResolutionContext
+from css.compute_context import ComputeContext
 
 """
 This class is responsible for cascading and inheritance, and calculating the `Actual Values` for each DOM node. 
@@ -86,7 +89,7 @@ class StyleComputer:
             self.compute_defaults(node)
 
             # resolving
-            self.absolutize_values(node)
+            self.absolutize_properties(node)
 
             for child in node.children:
                 recurse(child)
@@ -119,28 +122,38 @@ class StyleComputer:
         # we do this in two passes, as important declarations have different origin priorities.
         # first pass: do only NON !important declarations with the rule's origin priority set to unimportant
         # second pass: do only !important declarations with the rule's origin priority set to important
+        def apply_candidate_rules(rules: list[StyleRule], important: bool):
+            for rule in rules:
+                for decl in rule.declarations:
+                    # skip important decls when important=True
+                    if decl.important ^ important:
+                        continue
+
+                    node.specified_style[decl.prop] = decl.val
+
+                    # expand shorthand properties
+                    # FIXME: since I've only implemented the `font` property,
+                    # I'm expecting a ShorthandStyleValue. This may not be true for other shorthands.
+                    if isinstance(decl.val, ShorthandStyleValue):
+                        for prop, val in decl.val.sub_properties.items():
+                            node.specified_style[prop] = val
 
         # first pass:
         # sort rules by cascade order (origin, specificity, then source order) in ascending order
         candidate_rules.sort(key=lambda m: m.get_sort_key(important=False))
-        for rule in candidate_rules:
-            for decl in rule.declarations:
-                if decl.important:
-                    continue
-                node.specified_style[decl.prop] = decl.val
+        apply_candidate_rules(candidate_rules, important=False)
 
         # second pass:
         candidate_rules.sort(key=lambda m: m.get_sort_key(important=True))
-        for rule in candidate_rules:
-            for decl in rule.declarations:
-                if not decl.important:
-                    continue
-                node.specified_style[decl.prop] = decl.val
+        apply_candidate_rules(candidate_rules, important=True)
 
     def compute_defaults(self, node: Node) -> None:
         """Compute inherited and initial properties"""
         # TODO: provide lazy compute method
+        # TODO: ONLY LONGHANDS SHOULD BE STORED IN SPECIFIED/COMPUTED!!!!!!
         for prop in Property:
+            if prop == Property.LINE_HEIGHT and isinstance(node, Element):
+                log(node.tag, node.specified_style.get(Property.LINE_HEIGHT))
             if val := node.specified_style.get(prop):
                 if isinstance(val, KeywordValue) and val.is_css_wide():
                     # https://drafts.csswg.org/css-cascade-5/#defaulting-keywords
@@ -167,7 +180,7 @@ class StyleComputer:
                 self.initial_property(node, prop)
 
     # https://drafts.csswg.org/css-cascade-5/#computed
-    def absolutize_values(self, node: Node):
+    def absolutize_properties(self, node: Node):
         """
         Absolutize the following values IN ORDER, converting from **specified** to **computed** property
         - TODO: custom idents (var(--hello))
@@ -205,9 +218,29 @@ class StyleComputer:
         assert node.specified_style.get(Property.FONT_FAMILY)
         assert node.specified_style.get(Property.FONT_SIZE)
 
+        # create computation context to compute length
+        # if is root node, use default font metrics (size 16, 22)
+        default_font_metrics = FontMetrics(
+            self.preferred_font_size, self.preferred_font_size * 1.375
+        )
+        computation_context = ComputeContext(
+            length_context=(
+                LengthResolutionContext.for_element(node.parent, self.vw, self.vh)
+                if node.parent
+                else LengthResolutionContext(
+                    vw=self.vw,
+                    vh=self.vh,
+                    font_metrics=default_font_metrics,
+                    root_font_metrics=default_font_metrics,
+                )
+            )
+        )
+
         style = node.computed_style.styles
 
-        font_size = style[Property.FONT_SIZE] = self.compute_font_size(node)
+        font_size = style[Property.FONT_SIZE] = self.compute_font_size(
+            node, computation_context
+        )
         font_weight = style[Property.FONT_WEIGHT] = self.compute_font_weight(node)
         style[Property.FONT_WIDTH] = node.specified_style[Property.FONT_WIDTH]
         font_style = style[Property.FONT_STYLE] = node.specified_style[
@@ -216,7 +249,9 @@ class StyleComputer:
         style[Property.FONT_VARIATION_SETTINGS] = node.specified_style[
             Property.FONT_VARIATION_SETTINGS
         ]
-        style[Property.LINE_HEIGHT] = self.compute_line_height(node)
+        style[Property.LINE_HEIGHT] = self.compute_line_height(
+            node, computation_context
+        )
         style[Property.FONT_FAMILY] = node.specified_style[Property.FONT_FAMILY]
 
         # generate a tkinter font
@@ -257,21 +292,22 @@ class StyleComputer:
 
         assert node.computed_style.font
 
-    def compute_font_size(self, node: Node) -> LengthValue:
+    def compute_font_size(
+        self, node: Node, computation_context: ComputeContext
+    ) -> LengthValue:
         """Computes font size pixel value"""
         assert (
             Property.FONT_SIZE in node.specified_style
         ), "Error while absolutizing font size: Font size not found in specified properties"
 
-        specified = node.specified_style[Property.FONT_SIZE]
+        specified = node.specified_style[Property.FONT_SIZE].absolutize(
+            computation_context
+        )
 
-        # absolutize length unit (rem, em, vh, vw, vi, vb, ex)
-        if isinstance(specified, LengthValue) and (
-            absolutized := self.absolutize_length(
-                node, specified, prop_is_font_size=True
-            )
-        ):
-            return absolutized
+        # LengthValue absolutized to px
+        if isinstance(specified, LengthValue):
+            assert specified.length.unit == LengthUnit.PX, "must be absolutized to px"
+            return specified
 
         elif isinstance(specified, KeywordValue):
             # is relative size keyword [smaller | larger]
@@ -341,9 +377,13 @@ class StyleComputer:
         return KeywordValue("normal")
 
     def compute_line_height(
-        self, node: Node
+        self, node: Node, computation_context: ComputeContext
     ) -> KeywordValue | NumberValue | LengthValue:
-        specified = node.specified_style[Property.LINE_HEIGHT]
+
+        specified = node.specified_style[Property.LINE_HEIGHT].absolutize(
+            computation_context
+        )
+
         if isinstance(specified, KeywordValue) and specified.keyword == Keyword.NORMAL:
             return specified
 
@@ -358,49 +398,6 @@ class StyleComputer:
             return LengthValue(length)
 
         assert False
-
-    def absolutize_length(
-        self, node: Node, val: LengthValue, prop_is_font_size: bool = False
-    ) -> LengthValue | None:
-        """Converts a LengthValue from a **relative** length to an **absolute** length.
-        `prop_is_font_size` affects computing for (r)em / ex / viewport values. For example,
-        `font-size: 1.5em;` requires inheriting computed font size from parent, whereas
-        `border-width: 1.5em;` looks at the current node's computed font-size.
-
-        Units include: rem, em, ex, cap, ch, ic, ih, ...
-        """
-        unit = val.length.unit
-        value = val.length.value
-
-        if unit == LengthUnit.PX:
-            return val
-
-        # EM and REM units
-        if unit == LengthUnit.EM:
-            base_px = self._get_base_font_size_px(
-                node, prop_is_font_size, from_root=False
-            )
-            return LengthValue(Length.from_px(base_px * value))
-
-        if unit == LengthUnit.REM:
-            base_px = self._get_base_font_size_px(
-                node, prop_is_font_size, from_root=True
-            )
-            return LengthValue(Length.from_px(base_px * value))
-
-        # viewport units
-        if unit == LengthUnit.VW or unit == LengthUnit.VI:
-            # TODO: writing direction context so VI/VB actually work
-            px = self.vw * value
-            return LengthValue(Length.from_px(px))
-
-        if unit == LengthUnit.VH or unit == LengthUnit.VB:
-            px = self.vh * value
-            return LengthValue(Length.from_px(px))
-
-        # TODO: other relative units
-        warn(f"{unit} needs to be implemented")
-        return None
 
     def print_tree(self, prop: Property | None = None) -> None:
         def recurse(node: Node):
@@ -454,11 +451,13 @@ if __name__ == "__main__":
     user_css = """
     body h1 {
         color: red !important;
+        font: normal normal bold smaller/1.5 "Arial";
     }
 
     div.test{
         color: orange !important;
-        font-size: 33px;
+        font-size: 1lh;
+        line-height: 1em;
     }
 
     #p {
