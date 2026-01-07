@@ -83,8 +83,8 @@ class ValueParser:
                 return self.parse_length_percentage_value()
             case ValueType.NUMBER:
                 return self.parse_number_value()
-            # case ValueType.OPACITY:
-            #     return self.parse_opacity_value()
+            case ValueType.OPACITY:
+                return self.parse_opacity_value()
             # case ValueType.OPENTYPE_TAG:
             #     return self.parse_opentype_tag_value()
             case ValueType.PAINT:
@@ -351,9 +351,15 @@ class ValueParser:
 
         # TODO: parse calc
 
-    # def parse_opacity_value(self) -> OpacityValue:
-    #     self.stream.consume()
-    #     return OpacityValue()
+    def parse_opacity_value(self) -> NumberValue | PercentageValue | None:
+        tok = self.stream.peek()
+        if tok.type == Tok.NUMBER and tok.val:
+            self.stream.consume()
+            return NumberValue(tok.val)
+
+        if tok.type == Tok.PERCENTAGE and tok.val:
+            self.stream.consume()
+            return PercentageValue(float(tok.val))
 
     # def parse_opentype_tag_value(self) -> OpentypeTagValue:
     #     self.stream.consume()

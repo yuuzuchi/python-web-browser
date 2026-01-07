@@ -1,3 +1,9 @@
+import css.property
+import css.property
+import css.property
+import css.property
+from operator import is_
+from css.property import property_is_shorthand
 from css.style_values.shorthand import ShorthandStyleValue
 from dom import Document, Node, Element, Text
 from font_cache import get_font
@@ -150,10 +156,12 @@ class StyleComputer:
     def compute_defaults(self, node: Node) -> None:
         """Compute inherited and initial properties"""
         # TODO: provide lazy compute method
-        # TODO: ONLY LONGHANDS SHOULD BE STORED IN SPECIFIED/COMPUTED!!!!!!
         for prop in Property:
-            if prop == Property.LINE_HEIGHT and isinstance(node, Element):
-                log(node.tag, node.specified_style.get(Property.LINE_HEIGHT))
+
+            # only longhands should be stored on nodes
+            if property_is_shorthand(prop) or prop == Property.CUSTOM:
+                continue
+
             if val := node.specified_style.get(prop):
                 if isinstance(val, KeywordValue) and val.is_css_wide():
                     # https://drafts.csswg.org/css-cascade-5/#defaulting-keywords
@@ -193,8 +201,37 @@ class StyleComputer:
 
         # TODO: custom ident
 
+        # create computation context to compute length
+        # if is root node, use default font metrics (size 16, 22)
+        default_font_metrics = FontMetrics(
+            self.preferred_font_size, self.preferred_font_size * 1.375
+        )
+        computation_context = ComputeContext(
+            length_context=(
+                LengthResolutionContext.for_element(node.parent, self.vw, self.vh)
+                if node.parent
+                else LengthResolutionContext(
+                    vw=self.vw,
+                    vh=self.vh,
+                    font_metrics=default_font_metrics,
+                    root_font_metrics=default_font_metrics,
+                )
+            )
+        )
+
         # compute font first
-        self.compute_font(node)
+        self.compute_font(node, computation_context)
+
+        # compute rest of property values
+        for prop, style in node.specified_style.items():
+            # if property is already computed, we can skip over them
+            if node.computed_style.get(prop):
+                continue
+
+            # TODO: do special processing for some properties
+            # checkout lb StyleComputer.cpp StyleComputer::compute_value_of_property
+
+            node.computed_style.styles[prop] = style.absolutize(computation_context)
 
     # ============================== Compute Default Helpers ============================== #
 
@@ -214,27 +251,9 @@ class StyleComputer:
 
     # ============================== Absolutize Value Helpers ============================== #
 
-    def compute_font(self, node: Node) -> None:
+    def compute_font(self, node: Node, computation_context: ComputeContext) -> None:
         assert node.specified_style.get(Property.FONT_FAMILY)
         assert node.specified_style.get(Property.FONT_SIZE)
-
-        # create computation context to compute length
-        # if is root node, use default font metrics (size 16, 22)
-        default_font_metrics = FontMetrics(
-            self.preferred_font_size, self.preferred_font_size * 1.375
-        )
-        computation_context = ComputeContext(
-            length_context=(
-                LengthResolutionContext.for_element(node.parent, self.vw, self.vh)
-                if node.parent
-                else LengthResolutionContext(
-                    vw=self.vw,
-                    vh=self.vh,
-                    font_metrics=default_font_metrics,
-                    root_font_metrics=default_font_metrics,
-                )
-            )
-        )
 
         style = node.computed_style.styles
 
@@ -399,15 +418,15 @@ class StyleComputer:
 
         assert False
 
-    def print_tree(self, prop: Property | None = None) -> None:
+    def print_tree(self, prop: list[Property] | None = None) -> None:
         def recurse(node: Node):
             if isinstance(node, Element):
                 log(f"{node.tag}:")
-            elif isinstance(node, Text):
+            if isinstance(node, Text):
                 log(f"'{node.text}':")
 
             for key, val in node.computed_style.styles.items():
-                if not prop or key == prop:
+                if not prop or key in prop:
                     log(f"    {key.value} = {val};")
 
             for child in node.children:
@@ -441,7 +460,7 @@ if __name__ == "__main__":
                 <li><i>Item 1</i></li>
                 <li><b>It<i>em</b> 2</i></li>
             </ul>
-            <pre> hello </pre>
+            <pre style="text-wrap-mode: nowrap;"> hello </pre>
         </body>
     </html>
     """
@@ -486,4 +505,10 @@ if __name__ == "__main__":
     print("Styling:")
     computer = StyleComputer(doc, [stylesheet, stylesheet2], history, vw=800, vh=600)
     computer.style_tree()
-    computer.print_tree()
+    computer.print_tree(
+        prop=[
+            Property.WHITE_SPACE_COLLAPSE,
+            Property.TEXT_WRAP_MODE,
+            Property.WHITE_SPACE_TRIM,
+        ]
+    )

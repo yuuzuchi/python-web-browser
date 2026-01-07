@@ -20,5 +20,5 @@ class ListStyleValue(StyleValue):
     def __str__(self):
         sep = self.delim
         if sep == " ":
-            return " ".join(str(i) for i in self.items)
-        return f"{sep} ".join(repr(i) for i in self.items)
+            return f"[{" ".join(str(i) for i in self.items)}]"
+        return f"[{f"{sep} ".join(repr(i) for i in self.items)}]"

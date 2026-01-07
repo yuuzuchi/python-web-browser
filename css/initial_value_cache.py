@@ -1,3 +1,4 @@
+from log import warn
 from ast import Assert
 from css.enums import Property
 from css.parser import Declaration
@@ -8,7 +9,7 @@ from css.style_values.base import StyleValue
 _initial_value_cache = {}
 
 
-def property_initial_value(property: Property) -> StyleValue | None:
+def property_initial_value(property: Property) -> StyleValue:
     # initial value for property cache hit
     if property in _initial_value_cache:
         return _initial_value_cache[property]
@@ -19,6 +20,7 @@ def property_initial_value(property: Property) -> StyleValue | None:
 
     # Property has no initial value
     if not initial_value_as_string:
+        warn(f"No initial value for property {property}")
         return
 
     # tokenize as a css value
@@ -37,4 +39,4 @@ def property_initial_value(property: Property) -> StyleValue | None:
         _initial_value_cache[property] = out
         return out
 
-    # raise AssertionError(f"Could not parse intial value for property {property}")
+    warn(f"Could not parse intial value for property {property}")

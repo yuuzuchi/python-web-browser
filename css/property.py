@@ -2762,16 +2762,6 @@ PROPERTIES = {
     },
 }  # fmt: on
 
-def shorthand_to_longhands(prop: Property) -> list[Property]:
-    out: list[Property] = []
-    longhands = PROPERTIES.get(prop.value, {}).get("longhands", [])
-    assert isinstance(longhands, list)
-    for longhand in longhands:
-        assert longhand in Property
-        out.append(Property(longhand))
-    
-    return out
-    
 
 def keyword_group_to_keywords(kw_group: str) -> dict[Keyword, KeywordGroup]:
     if kw_group in KEYWORD_GROUPS:
@@ -2956,6 +2946,21 @@ def property_is_positional_value_list_shorthand(property: Property) -> bool:
     )
     assert isinstance(is_positional_value_list_shorthand, bool)
     return is_positional_value_list_shorthand
+
+
+def shorthand_to_longhands(prop: Property) -> list[Property]:
+    out: list[Property] = []
+    longhands = PROPERTIES.get(prop.value, {}).get("longhands", [])
+    assert isinstance(longhands, list)
+    for longhand in longhands:
+        assert longhand in Property
+        out.append(Property(longhand))
+
+    return out
+
+
+def property_is_shorthand(prop: Property) -> bool:
+    return bool(PROPERTIES.get(prop.value, {}).get("longhands", False))
 
 
 if __name__ == "__main__":

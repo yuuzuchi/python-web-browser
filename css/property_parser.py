@@ -9,12 +9,20 @@ from css.style_values.shorthand import ShorthandStyleValue
 from css.style_values.keyword import KeywordValue
 from css.style_values.list import ListStyleValue
 from css.style_values.base import StyleValue
-from css.enums import Property, Keyword
+from css.enums import Property, Keyword, ValueType
 from typing import Callable
-from css.components import Component
-from css.parser import Declaration
 from css.value_parser import ValueParser
-from css.property import *
+from css.property import (
+    property_is_positional_value_list_shorthand,
+    property_accepts_keyword,
+    property_accepted_types,
+    property_accepts_integer,
+    property_accepts_number,
+    property_accepts_angle,
+    property_accepts_percentage,
+    property_accepts_length,
+    property_accepts_time,
+)
 from css.lexer import Lexer, Token, Tok
 from css.token_stream import CSSTokenStream
 from css.initial_value_cache import property_initial_value
@@ -113,11 +121,15 @@ class PropertyParser:
         # 3. dispatch to property-specific parsers
         match property:
             case Property.FONT:
-                return parse_as(self.parse_font_value)
+                return parse_as(self.parse_font_shorthand)
             case Property.FONT_FAMILY:
                 return parse_as(self.parse_font_family_value)
             case Property.FONT_VARIANT:
                 return parse_as(self.parse_font_variant_value)
+            case Property.WHITE_SPACE:
+                return parse_as(self.parse_white_space_shorthand)
+            case Property.WHITE_SPACE_TRIM:
+                return parse_as(self.parse_white_space_trim_value)
 
         # 4. dispatch positional value list shorthands (margin, inset, border-radius, etc)
         if property_is_positional_value_list_shorthand(property):
@@ -387,7 +399,7 @@ class PropertyParser:
     # ================================= Fonts ================================= #
 
     # [ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | <system-family-name>
-    def parse_font_value(self) -> ShorthandStyleValue | None:
+    def parse_font_shorthand(self) -> ShorthandStyleValue | None:
         font_style = font_variant = font_weight = font_width = font_size = line_height = font_family = None # fmt: skip
 
         self.stream.consume_whitespace()
@@ -558,31 +570,148 @@ class PropertyParser:
         return CustomIdentValue(" ".join(parts))
 
     # https://drafts.csswg.org/css-fonts/#propdef-font-variant
-    # TODO: yeah no
-    # normal | none |
-    # [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ]
-    # || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] ||
-    # [ FIXME: stylistic(<feature-value-name>) ||
-    # historical-forms ||
-    # FIXME: styleset(<feature-value-name>#) ||
-    # FIXME: character-variant(<feature-value-name>#) ||
-    # FIXME: swash(<feature-value-name>) ||
-    # FIXME: ornaments(<feature-value-name>) ||
-    # FIXME: annotation(<feature-value-name>) ] ||
-    # [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> ||
-    # ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] ||
-    # [ sub | super ] || [ text | emoji | unicode ] ]
     def parse_font_variant_value(self):
+        # TODO: yeah no
+        # normal | none |
+        # [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ]
+        # || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] ||
+        # [ FIXME: stylistic(<feature-value-name>) ||
+        # historical-forms ||
+        # FIXME: styleset(<feature-value-name>#) ||
+        # FIXME: character-variant(<feature-value-name>#) ||
+        # FIXME: swash(<feature-value-name>) ||
+        # FIXME: ornaments(<feature-value-name>) ||
+        # FIXME: annotation(<feature-value-name>) ] ||
+        # [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> ||
+        # ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] ||
+        # [ sub | super ] || [ text | emoji | unicode ] ]
         self.stream.consume()
         self.stream.consume_whitespace()
         return KeywordValue("normal")
+
+    # ================================= Whitespace ================================= #
+
+    # https://www.w3.org/TR/css-text-4/#white-space-property
+    # normal | pre | pre-wrap | pre-line | <'white-space-collapse'> || <'text-wrap-mode'> || <'white-space-trim'>
+    def parse_white_space_shorthand(self) -> ShorthandStyleValue | None:
+        self.stream.consume_whitespace()
+        tok = self.stream.peek()
+
+        def create_shorthand(collapse, wrap, trim):
+            return ShorthandStyleValue(
+                Property.WHITE_SPACE,
+                {
+                    Property.WHITE_SPACE_COLLAPSE: collapse
+                    or property_initial_value(Property.WHITE_SPACE_COLLAPSE),
+                    Property.TEXT_WRAP_MODE: wrap
+                    or property_initial_value(Property.TEXT_WRAP_MODE),
+                    Property.WHITE_SPACE_TRIM: trim
+                    or property_initial_value(Property.WHITE_SPACE_TRIM),
+                },
+            )
+
+        if tok.type == Tok.IDENT and tok.val in Keyword:
+            keyword = Keyword(tok.val)
+
+            if property_accepts_keyword(Property.WHITE_SPACE, keyword):
+                self.stream.consume()
+
+                if keyword == Keyword.PRE:
+                    return create_shorthand(
+                        KeywordValue.from_keyword(Keyword.PRESERVE),
+                        KeywordValue.from_keyword(Keyword.NOWRAP),
+                        KeywordValue.from_keyword(Keyword.NONE),
+                    )
+                elif keyword == Keyword.PRE_WRAP:
+                    return create_shorthand(
+                        KeywordValue.from_keyword(Keyword.PRESERVE),
+                        KeywordValue.from_keyword(Keyword.WRAP),
+                        KeywordValue.from_keyword(Keyword.NONE),
+                    )
+                elif keyword == Keyword.PRE_LINE:
+                    return create_shorthand(
+                        KeywordValue.from_keyword(Keyword.PRESERVE_BREAKS),
+                        KeywordValue.from_keyword(Keyword.WRAP),
+                        KeywordValue.from_keyword(Keyword.NONE),
+                    )
+                # normal
+                return create_shorthand(
+                    KeywordValue.from_keyword(Keyword.COLLAPSE),
+                    KeywordValue.from_keyword(Keyword.WRAP),
+                    KeywordValue.from_keyword(Keyword.NONE),
+                )
+
+        collapse = wrap = trim = None
+        while self.stream.has_next():
+            self.stream.consume_whitespace()
+
+            if res := self.parse_value_for_property(Property.WHITE_SPACE_COLLAPSE):
+                if collapse:
+                    return
+                collapse = res
+                continue
+
+            if res := self.parse_value_for_property(Property.TEXT_WRAP_MODE):
+                if wrap:
+                    return
+                wrap = res
+                continue
+
+            if res := self.parse_white_space_trim_value():
+                if trim:
+                    return
+                trim = res
+                continue
+            break
+
+        return create_shorthand(collapse, wrap, trim)
+
+    # none | discard-before || discard-after || discard-inner
+    def parse_white_space_trim_value(self) -> KeywordValue | ListStyleValue | None:
+        self.stream.consume_whitespace()
+        tok = self.stream.peek()
+        if tok.type != Tok.IDENT:
+            return None
+
+        if tok.val == "none":
+            self.stream.consume()
+            return KeywordValue("none")
+
+        before = after = inner = None
+        while parsed := self.parse_value_for_property(Property.WHITE_SPACE_TRIM):
+            assert isinstance(parsed, KeywordValue)
+            # ensure no duplicate keywords
+            if parsed.keyword == Keyword.DISCARD_BEFORE:
+                if before:
+                    return
+                before = parsed
+            elif parsed.keyword == Keyword.DISCARD_AFTER:
+                if after:
+                    return
+                after = parsed
+            elif parsed.keyword == Keyword.DISCARD_INNER:
+                if inner:
+                    return
+                inner = parsed
+
+        values: list[StyleValue] = []
+        if before:
+            values.append(before)
+        if after:
+            values.append(after)
+        if inner:
+            values.append(inner)
+
+        return ListStyleValue(values, delim=" ")
 
 
 if __name__ == "__main__":
     set_debug()
     declaration = """
     
-    font: normal normal bold smaller/1.5 "Arial";
+    /*font: normal normal bold smaller/1.5 "Arial";*/
+    white-space: discard-before discard-after nowrap preserve ;
+    /*white-space-trim: discard-before discard-after;*/
     /*line-height: 1px;*/
     
     """
@@ -590,14 +719,17 @@ if __name__ == "__main__":
     from css.parser import CSSSyntaxParser
 
     contents = CSSSyntaxParser().parse_declaration_list(toks)
-    prop = Property.from_name(contents[0].name)
-    val = contents[0].val
-    log("Input token stream:", val)
-    log("Declaration:", contents)
-    parser = PropertyParser(val)
-    out = parser.parse_entire_value(prop)
-    log("\nOutput Style Value:", out)
-    log("Output Style Type:", type(out))
+
+    for content in contents:
+        log("#====================================================#")
+        prop = Property.from_name(content.name)
+        val = content.val
+        log("Input token stream:", val)
+        log("Declaration:", content)
+        parser = PropertyParser(val)
+        out = parser.parse_entire_value(prop)
+        log("\nOutput Style Value:", out)
+        log("Output Style Type:", type(out))
 
     # initial = parser.property_initial_value(prop)
     # log(f"Initial value for {prop}: {initial}")

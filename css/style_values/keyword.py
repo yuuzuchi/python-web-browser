@@ -4,13 +4,19 @@ from css.lexer import Tok, Token
 from .base import StyleValue
 
 
-@dataclass
 class KeywordValue(StyleValue):
-    keyword_str: str
 
-    def __post_init__(self):
-        self.keyword_str = self.keyword_str.lower()
+    def __init__(self, keyword_str: str):
+        self.keyword_str = keyword_str.lower()
         self.keyword = Keyword(self.keyword_str)
+
+    @classmethod
+    def from_keyword(cls, keyword: Keyword) -> "KeywordValue":
+        """Create a KeywordValue from a Keyword enum."""
+        instance = cls.__new__(cls)
+        instance.keyword = keyword
+        instance.keyword_str = keyword.value
+        return instance
 
     def to_token(self) -> Token:
         return Token(type=Tok.IDENT, val=self.keyword.value)
