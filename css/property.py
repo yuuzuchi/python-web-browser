@@ -1518,6 +1518,12 @@ PROPERTIES = {
         "quirks": ["unitless-length"],
         "needs-layout-for-getcomputedstyle": True,
     },
+    "hyphens": {
+        "animation-type": "discrete",
+        "inherited": True,
+        "initial": "manual",
+        "valid-identifiers": ["none", "manual", "auto"],
+    },
     "image-rendering": {
         "animation-type": "discrete",
         "affects-layout": False,
@@ -2778,6 +2784,10 @@ def keyword_to_keyword_group_keyword(
         return group(keyword.value)
 
 
+def keyword_in_keyword_group(keyword: Keyword, group: Type[Enum]) -> bool:
+    return keyword.value in group._value2member_map_
+
+
 # type_range = "type [low,high]"
 def _is_in_range(type_range: str, value) -> bool:
     assert "[" in type_range
@@ -2966,7 +2976,7 @@ def property_is_shorthand(prop: Property) -> bool:
 if __name__ == "__main__":
     set_debug()
 
-    PROP = Property.COLOR
+    PROP = Property.DISPLAY
 
     log(property_accepts_type(PROP, ValueType.LENGTH))
     log(property_accepts_keyword(PROP, Keyword.X_SMALL))
@@ -2975,20 +2985,19 @@ if __name__ == "__main__":
     log("Accepted types:", property_accepted_types(PROP))
     log("Accepted keywords:", property_accepted_keywords(PROP))
 
-    # print ALL unique keyword groups (aka value objects)
-    unique = set()
-    for prop in PROPERTIES.values():
-        if not isinstance(prop, dict):
-            continue
-        valid = prop.get("valid-types")
-        assert isinstance(valid, list)
-        if not valid:
-            continue
-        for type in valid:
-            if type.split(" ")[0] in ValueType._value2member_map_:
-                continue
-            unique.add(type)
+    # # print ALL unique keyword groups (aka value objects)
+    # unique = set()
+    # for prop in PROPERTIES.values():
+    #     if not isinstance(prop, dict):
+    #         continue
+    #     valid = prop.get("valid-types")
+    #     if not valid or not isinstance(valid, list):
+    #         continue
+    #     for type in valid:
+    #         if type.split(" ")[0] in ValueType._value2member_map_:
+    #             continue
+    #         unique.add(type)
 
-    unique = sorted(list(unique))
+    # unique = sorted(list(unique))
 
-    log("Unique keyword groups: ", unique)
+    # log("Unique keyword groups: ", unique)

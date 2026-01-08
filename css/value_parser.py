@@ -1,3 +1,5 @@
+from css.style_values.fit_content import FitContentValue
+from css.style_values.dimension import Percentage
 from css.style_values.dimension import TimeValue
 from log import warn, log
 from css.style_values.dimension import Length
@@ -65,8 +67,8 @@ class ValueParser:
             #     return self.parse_easing_value()
             # case ValueType.FILTER_VALUE_LIST:
             #     return self.parse_filter_value_list_value()
-            # case ValueType.FIT_CONTENT:
-            #     return self.parse_fit_content_value()
+            case ValueType.FIT_CONTENT:
+                return self.parse_fit_content_value()
             # case ValueType.FLEX:
             #     return self.parse_flex_value()
             # case ValueType.FREQUENCY:
@@ -175,10 +177,15 @@ class ValueParser:
 
     def parse_angle_value(self) -> AngleValue | None:
         tok = self.stream.peek()
-        if tok.type == Tok.DIMENSION and tok.dim_unit in ("deg", "grad", "rad", "turn"):
+        if tok.type == Tok.DIMENSION and tok.token.dim_unit in (
+            "deg",
+            "grad",
+            "rad",
+            "turn",
+        ):
             self.stream.consume()
             assert isinstance(tok.val, str)
-            return AngleValue(float(tok.val), tok.dim_unit)
+            return AngleValue(float(tok.val), tok.token.dim_unit)
 
     def parse_angle_percentage_value(self) -> AngleValue | PercentageValue | None:
         with self.stream.transaction() as tx:
@@ -189,7 +196,7 @@ class ValueParser:
                 percentage = self.stream.consume().val
                 assert percentage
                 tx.commit()
-                return PercentageValue(float(percentage))
+                return PercentageValue(Percentage(float(percentage)))
 
             # TODO: calc stuff
             # if calc := self.parse_calculated_value() and calc and isinstance(calc, )
@@ -271,9 +278,31 @@ class ValueParser:
     #     self.stream.consume()
     #     return FilterValueListValue()
 
-    # def parse_fit_content_value(self) -> FitContentValue:
-    #     self.stream.consume()
-    #     return FitContentValue()
+    def parse_fit_content_value(self) -> FitContentValue | None:
+        with self.stream.transaction() as tx:
+            component_value = self.stream.consume()
+
+            if component_value.is_ident("fit-content"):
+                tx.commit()
+                return FitContentValue()
+
+            if not isinstance(component_value, Function):
+                return
+
+            if component_value.name != "fit-content":
+                return
+
+            func_stream = CSSTokenStream(component_value.val)
+            parser = ValueParser(func_stream)
+            if not (length := parser.parse_length_percentage()):
+                return
+
+            func_stream.consume_whitespace()
+            if func_stream.has_next():
+                return
+
+            tx.commit()
+            return FitContentValue(length)
 
     # def parse_flex_value(self) -> FlexValue:
     #     self.stream.consume()
@@ -293,7 +322,7 @@ class ValueParser:
 
     def parse_integer_value(self) -> IntegerValue | None:
         tok = self.stream.peek()
-        if tok.type == Tok.NUMBER and tok.num_type == Num.INTEGER and tok.val:
+        if tok.type == Tok.NUMBER and tok.token.num_type == Num.INTEGER and tok.val:
             self.stream.consume()
             return IntegerValue(int(tok.val))
 
@@ -301,9 +330,11 @@ class ValueParser:
         with self.stream.transaction() as tx:
             tok = self.stream.consume()
             if tok.type == Tok.DIMENSION:
-                if tok.dim_unit and tok.val and tok.dim_unit in LengthUnit:
+                if tok.token.dim_unit and tok.val and tok.token.dim_unit in LengthUnit:
                     tx.commit()
-                    return LengthValue(Length(float(tok.val), LengthUnit(tok.dim_unit)))
+                    return LengthValue(
+                        Length(float(tok.val), LengthUnit(tok.token.dim_unit))
+                    )
 
             if tok.type == Tok.NUMBER:
                 number = tok.val
@@ -317,19 +348,30 @@ class ValueParser:
 
         # TODO: parse calc
 
+    def parse_length_percentage(self) -> Length | Percentage | None:
+        if value := self.parse_length_percentage_value():
+            if isinstance(value, LengthValue):
+                return value.length
+            if isinstance(value, PercentageValue):
+                return value.percentage
+
+            # TODO: calculatedvalue and anchorvalue
+
     def parse_length_percentage_value(
         self,
     ) -> LengthValue | PercentageValue | AnchorSizeValue | None:
         with self.stream.transaction() as tx:
             tok = self.stream.consume()
             if tok.type == Tok.DIMENSION:
-                if tok.dim_unit and tok.val and tok.dim_unit in LengthUnit:
+                if tok.token.dim_unit and tok.val and tok.token.dim_unit in LengthUnit:
                     tx.commit()
-                    return LengthValue(Length(float(tok.val), LengthUnit(tok.dim_unit)))
+                    return LengthValue(
+                        Length(float(tok.val), LengthUnit(tok.token.dim_unit))
+                    )
 
             if tok.type == Tok.PERCENTAGE and tok.val:
                 tx.commit()
-                return PercentageValue(float(tok.val))
+                return PercentageValue(Percentage(float(tok.val)))
 
             if tok.type == Tok.NUMBER:
                 number = tok.val
@@ -359,7 +401,7 @@ class ValueParser:
 
         if tok.type == Tok.PERCENTAGE and tok.val:
             self.stream.consume()
-            return PercentageValue(float(tok.val))
+            return PercentageValue(Percentage(float(tok.val)))
 
     # def parse_opentype_tag_value(self) -> OpentypeTagValue:
     #     self.stream.consume()
@@ -413,7 +455,7 @@ class ValueParser:
         tok = self.stream.peek()
         if tok.type == Tok.PERCENTAGE and tok.val:
             self.stream.consume()
-            return PercentageValue(tok.val)
+            return PercentageValue(Percentage(tok.val))
 
     # def parse_position_value(
     #     self, type: ValueType = ValueType.POSITION
@@ -442,10 +484,10 @@ class ValueParser:
     def parse_time_value(self) -> TimeValue | None:
         tok = self.stream.peek()
         if tok.type == Tok.DIMENSION:
-            if tok.dim_unit and tok.dim_unit.lower() in ("ms", "s"):
+            if tok.token.dim_unit and tok.token.dim_unit.lower() in ("ms", "s"):
                 self.stream.consume()
                 assert isinstance(tok.val, int)
-                return TimeValue(float(tok.val), tok.dim_unit)
+                return TimeValue(float(tok.val), tok.token.dim_unit)
 
     # def parse_time_percentage_value(self) -> TimePercentageValue:
     #     self.stream.consume()

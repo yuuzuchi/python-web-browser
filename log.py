@@ -13,7 +13,6 @@ def set_debug():
 
 
 def _log(color, *args, **kwargs):
-    print(DEBUG)
     if DEBUG:
         print(f"{color}", end="")
         print(*args, **kwargs)

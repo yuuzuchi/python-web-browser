@@ -1,3 +1,4 @@
+from __future__ import annotations
 from css.style_rule import StyleRule
 from dataclasses import dataclass
 from css.enums import Origin

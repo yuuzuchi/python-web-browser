@@ -41,19 +41,19 @@ class Num(Enum):
     NUMBER = "number"
 
 
-def is_ident_start(c: str) -> bool:
+def is_ident_start(c: str | None) -> bool:
     if not c:
         return False
     return c in "_" or c.isalpha() or not c.isascii()
 
 
-def is_ident(c: str) -> bool:
+def is_ident(c: str | None) -> bool:
     if not c:
         return False
     return is_ident_start(c) or c == "-" or c.isdigit()
 
 
-def is_hex_digit(c: str) -> bool:
+def is_hex_digit(c: str | None) -> bool:
     if not c:
         return False
     return c.isdigit() or c in "abcdefABCDEF"
@@ -126,17 +126,6 @@ class Token:
                 return Token(Tok.RPAREN)
             case _:
                 pass
-
-    def is_ident(self, val: str, case_insensitive=True) -> bool:
-        if not isinstance(self.val, str):
-            return False
-
-        return self.type == Tok.IDENT and (
-            self.val.lower() == val.lower() if case_insensitive else self.val == val
-        )
-
-    def is_delim(self, delim: str) -> bool:
-        return self.type == Tok.DELIM and self.val == delim
 
 
 class Lexer:
@@ -370,6 +359,7 @@ class Lexer:
 
     def consume_url(self) -> Token:
         url_tok = Token(Tok.URL, "")
+        assert isinstance(url_tok.val, str)
         self.consume_whitespace()
         while True:
             c = self.next_char()
@@ -426,15 +416,15 @@ class Lexer:
         res = []
 
         if self.peek(0) in ["+", "-"]:
-            res.append(self.next_char())
+            res.append(self.assert_next())
         while self.peek(0).isdigit():
-            res.append(self.next_char())
+            res.append(self.assert_next())
         if self.peek(0) == "." and self.peek(1).isdigit():
-            res.append(self.next_char())
-            res.append(self.next_char())
+            res.append(self.assert_next())
+            res.append(self.assert_next())
             t = Num.NUMBER
             while self.peek(0).isdigit():
-                res.append(self.next_char())
+                res.append(self.assert_next())
         if self.peek(0).lower() == "e":
             consume_len = 0
             if self.peek(1).isdigit():
@@ -444,20 +434,20 @@ class Lexer:
 
             if consume_len:
                 for _ in range(consume_len):
-                    res.append(self.next_char())
+                    res.append(self.assert_next())
                 t = Num.NUMBER
                 while self.peek(0).isdigit():
-                    res.append(self.next_char())
+                    res.append(self.assert_next())
 
         return self.string_to_number("".join(res)), t
 
     def consume_escape(self) -> str:
-        c = self.next_char()
+        c = self.assert_next()
         if is_hex_digit(c):
             # return code point associated with hex value, e.g. \FFFD -> REPLACEMENT_CHARACTER(�)
             hex_num = [c]
             while is_hex_digit(self.peek(0)) and len(hex_num) < 6:
-                hex_num.append(self.next_char())
+                hex_num.append(self.assert_next())
 
             if self.peek(0).isspace():
                 self.consume_whitespace()
@@ -524,6 +514,11 @@ class Lexer:
         return (
             sign * (int_part + frac_part * 10 ** (-frac_len)) * 10 ** (exp_sign * exp)
         )
+
+    def assert_next(self) -> str:
+        c = self.next_char()
+        assert c, "Early EOF"
+        return c
 
 
 if __name__ == "__main__":

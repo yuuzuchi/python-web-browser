@@ -31,14 +31,21 @@ class DimensionValue(StyleValue):
 
 
 @dataclass
-class PercentageValue(DimensionValue):
-    def __init__(self, raw_value: float):
-        self.raw_value = raw_value
-        self.dim_unit = "percent"
+class Percentage:
+    value: float
 
     @property
-    def percentage(self):
-        return self.raw_value / 100
+    def normalized(self):
+        return self.value / 100
+
+
+@dataclass
+class PercentageValue(DimensionValue):
+
+    def __init__(self, percentage: Percentage):
+        self.percentage = percentage
+        self.raw_value = percentage.value
+        self.dim_unit = "percent"
 
     def to_token(self) -> Token:
         return Token(type=Tok.PERCENTAGE, val=self.raw_value)

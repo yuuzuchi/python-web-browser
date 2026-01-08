@@ -1,3 +1,6 @@
+from css.enums import DisplayOutside
+from css.enums import Property
+from css.computed_style import ComputedStyle
 from dataclasses import dataclass
 import tkinter
 from typing import Iterator, Optional
@@ -68,8 +71,11 @@ class Layout:
     def self_rect(self):
         return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
 
-    def computed_style(self):
+    def computed_style(self) -> ComputedStyle:
         return self.node.computed_style if self.node else None
+
+    def has_inline_children(self) -> bool:
+        return False
 
 
 class DocumentLayout(Layout):
@@ -116,7 +122,7 @@ class BlockLayout(Layout):
     def paint(self):
         cmds = []
         if isinstance(self.node, Element):
-            bgcolor = self.node.computed_style.get("background-color", "transparent")
+            bgcolor = "transparent"  # self.node.computed_style.get("background-color", "transparent")
             if bgcolor != "transparent":
                 rect = DrawRect(self.self_rect(), bgcolor)
                 cmds.append(rect)
@@ -135,7 +141,7 @@ class AnonymousLayout(Layout):
         super().__init__(None, parent, previous)
 
     def computed_style(self):
-        return self.parent.node.style
+        return self.parent.node.computed_style
 
     def paint(self):
         return []
@@ -220,7 +226,7 @@ class InlineElementLayout(Layout):
 
 def build_layout_for_node(node: Element | Text, parent, previous):
     style = node.computed_style
-    if style["display"] == "block":
+    if style.computed_display().is_block():
         box = BlockLayout(node, parent, previous)
 
         inline_buffer = []
@@ -228,7 +234,7 @@ def build_layout_for_node(node: Element | Text, parent, previous):
         for child in node.children:
             if (
                 isinstance(child, Element)
-                and child.computed_style.get("display") == "block"
+                and child.computed_style.computed_display().is_block()
             ):
                 if child.tag == "head":
                     continue
@@ -275,14 +281,14 @@ def build_inline_layouts(nodes: list[Element | Text], parent) -> list[Layout]:
                 continue
             if (
                 node.tag in NO_RENDER_ELEMENTS
-                or node.computed_style.get("display") == "none"
+                or node.computed_style.computed_display().is_none()
             ):
                 continue
             if node.tag == "br":
                 br = BreakLayout(node, parent)
                 res.append(br)
             elif (
-                node.computed_style.get("display") == "inline"
+                node.computed_style.computed_display().is_inline()
                 or node.tag not in BLOCK_ELEMENTS
             ):
                 elem = InlineElementLayout(node, parent)

@@ -1,17 +1,16 @@
-/* h1>h2 h3 {
-    color: white;
+p {
+    color: green;
 }
 
-*/
 /* div.pog[hi *=deow s]:has(h3) {
     color: white !important;
 } */
 
 
-button:not(:disabled) {
-    /* font: italic small-caps bold ultra-expanded 16px/1.5 "Helvetica Neue", Arial, "Noto Sans", sans-serif; */
+/* button:not(:disabled) { 
+    font: italic small-caps bold ultra-expanded 16px/1.5 "Helvetica Neue", Arial, "Noto Sans", sans-serif;
         hi: 3.0;
-}
+} */
 
 
 /*

@@ -1,10 +1,11 @@
 # https://www.w3.org/TR/css-syntax-3/#parse-grammar
+from log import warn
 import collections
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from css.components import (
-    Component,
+    ComponentValue,
     SimpleBlock,
     Function,
 )
@@ -42,7 +43,7 @@ from css.style_declaration import StyleDeclaration
 @dataclass
 class Rule:
     prelude: list
-    block: Optional[Any]
+    block: Optional[SimpleBlock]
     location: Optional[Any] = None
 
     def __str__(self):
@@ -65,7 +66,7 @@ class AtRule(Rule):
 
 @dataclass
 class QualifiedRule(Rule):
-    block: list[Any] = field(default_factory=list)
+    block: Optional[SimpleBlock]
 
     @property
     def selectors(self):
@@ -84,7 +85,7 @@ class Stylesheet:
 @dataclass
 class Declaration:
     name: str
-    val: list[Token]
+    val: list[ComponentValue]
     important: bool = False
 
     def __str__(self):
@@ -103,7 +104,10 @@ class CSSSyntaxParser:
             return  # called with same CSSTokenStream, don't change pointers
         else:
             self.input = inp
-        self.cur, self.next = None, self.input.next()
+        self.cur: Token | ComponentValue = Token(
+            Tok.EOF
+        )  # INITIAL VALUE SHOULD NEVER BE READ
+        self.next = self.input.next()
 
     def normalize_input(self, inp: list | str) -> CSSTokenStream:
         if isinstance(inp, list):
@@ -117,10 +121,10 @@ class CSSSyntaxParser:
             )
             tokens = Lexer(inp).parse()
             return CSSTokenStream(tokens)
-        return CSSTokenStream(tokens)
+        return CSSTokenStream(inp)
 
     # TODO: return type wrong, update later
-    def consume(self) -> Token | Component:
+    def consume(self) -> Token | ComponentValue:
         if self.reconsume_next:
             self.reconsume_next = False
             return self.cur
@@ -145,11 +149,13 @@ class CSSSyntaxParser:
         stylesheet = self.parse_stylesheet(self.input)
 
         for i, rule in enumerate(stylesheet.val):
+            if isinstance(rule, AtRule):
+                continue
+
             assert rule.block
 
             # parse and replace selectors with a list of ComplexSelectors
             rule.prelude = SelectorParser(rule.prelude).parse()
-            # log("Selector:", rule.prelude)
 
             # replace each qualified rule with a StyleRule
             assert isinstance(stylesheet.val[i].block, SimpleBlock)
@@ -162,12 +168,16 @@ class CSSSyntaxParser:
                 if isinstance(decl, AtRule):
                     continue
 
-                assert isinstance(decl, Declaration)
-                prop = Property.from_name(decl.name)
-                assert prop, decl
-                if value := PropertyParser(decl.val).parse_entire_value(prop):
-                    temp.append(StyleDeclaration(prop, value, decl.important))
-                    # log(f"{prop} = {value}{" !important" if decl.important else ""}")
+                if isinstance(decl, Declaration):
+                    prop = Property.from_name(decl.name)
+                    if not prop:
+                        warn(decl.name, "is not a defined property")
+                        continue
+                    # assert prop, decl.name
+                    assert decl, decl
+                    if value := PropertyParser(decl.val).parse_entire_value(prop):
+                        temp.append(StyleDeclaration(prop, value, decl.important))
+                        # log(f"{prop} = {value}{" !important" if decl.important else ""}")
 
             out.append(
                 StyleRule(
@@ -285,7 +295,7 @@ class CSSSyntaxParser:
         self.init_state(inp)
         return self.consume_declaration_list()
 
-    def parse_component_value(self, inp) -> Token | SimpleBlock | None:
+    def parse_component_value(self, inp) -> ComponentValue | None:
         self.init_state(inp)
         while self.next.type == Tok.WHITESPACE:
             self.consume()
@@ -343,7 +353,7 @@ class CSSSyntaxParser:
                     pass
                 case Tok.EOF:
                     return rules
-                case Tok.CDO, Tok.CDC:
+                case Tok.CDO | Tok.CDC:
                     if not top_level:
                         self.reconsume()
                         res = self.consume_qualified_rule()
@@ -360,6 +370,7 @@ class CSSSyntaxParser:
 
     def consume_at_rule(self) -> AtRule:
         self.consume()
+        assert self.cur.val
         at_rule = AtRule(prelude=[], block=None, location=None, name=self.cur.val)
         while True:
             tok = self.consume()
@@ -378,22 +389,21 @@ class CSSSyntaxParser:
             self.reconsume()
             at_rule.prelude.append(self.consume_component_value())
 
-    def consume_qualified_rule(self) -> QualifiedRule:
-        qual_rule = QualifiedRule(prelude=[], block=[], location=None)
+    def consume_qualified_rule(self) -> QualifiedRule | None:
+        prelude = []
         while True:
             tok = self.consume()
             if tok.type == Tok.EOF:
                 self.parse_error("Error parsing qualified rule: early EOF")
                 return None
             if isinstance(tok, SimpleBlock) and tok.type == Tok.LBRACE:
-                qual_rule.block = tok
-                return qual_rule
+                return QualifiedRule(prelude=prelude, block=tok, location=None)
             if tok.type == Tok.LBRACE:
-                qual_rule.block = self.consume_simple_block()
-                return qual_rule
+                block = self.consume_simple_block()
+                return QualifiedRule(prelude=prelude, block=block, location=None)
 
             self.reconsume()
-            qual_rule.prelude.append(self.consume_component_value())
+            prelude.append(self.consume_component_value())
 
     # returns a single list containing declarations in the order they appear,
     # followed by nested rules in the order they appear.
@@ -411,7 +421,7 @@ class CSSSyntaxParser:
                     self.reconsume()
                     rules.append(self.consume_at_rule())
                 case Tok.IDENT:
-                    temp = [self.cur]
+                    temp: list[ComponentValue | Token] = [self.cur]
                     while self.next.type not in (Tok.SEMICOLON, Tok.EOF):
                         temp.append(self.consume_component_value())
                     parser = CSSSyntaxParser()
@@ -446,7 +456,7 @@ class CSSSyntaxParser:
                     self.reconsume()
                     decls.append(self.consume_at_rule())
                 case Tok.IDENT:
-                    temp = [self.cur]
+                    temp: list[ComponentValue | Token] = [self.cur]
                     while self.next.type not in (Tok.SEMICOLON, Tok.EOF):
                         temp.append(self.consume_component_value())
                     parser = CSSSyntaxParser()
@@ -463,12 +473,13 @@ class CSSSyntaxParser:
 
     def consume_declaration(self) -> Declaration:
         self.consume()
+        assert self.cur.val
         declaration = Declaration(name=self.cur.val, val=[])
         while self.next.type == Tok.WHITESPACE:
             self.consume()
         if self.next.type != Tok.COLON:
             self.parse_error(f"Error parsing declaration: missing ':'")
-            return None
+            assert False
         self.consume()
         while self.next.type == Tok.WHITESPACE:
             self.consume()
@@ -498,15 +509,19 @@ class CSSSyntaxParser:
 
         return declaration
 
-    def consume_component_value(self) -> Token | Component:
+    def consume_component_value(self) -> ComponentValue:
         tok = self.consume()
+        if isinstance(tok, ComponentValue):
+            return tok
+
         if tok.type in [Tok.LBRACE, Tok.LBRAC, Tok.LPAREN]:
-            return self.consume_simple_block()
-        elif tok.type == Tok.FUNCTION and not isinstance(tok, Function):
-            return self.consume_function()
-        return tok
+            return ComponentValue(self.consume_simple_block())
+        elif tok.type == Tok.FUNCTION:
+            return ComponentValue(self.consume_function())
+        return ComponentValue(tok)
 
     def consume_simple_block(self) -> SimpleBlock:
+        assert isinstance(self.cur, Token)
         mirror_end_tok = self.cur.mirror()
         # create simple block (with tok.tok_type = self.cur, val=[])
         simple_block = SimpleBlock(self.cur, [])
@@ -522,6 +537,7 @@ class CSSSyntaxParser:
                 simple_block.val.append(self.consume_component_value())
 
     def consume_function(self) -> Function:
+        assert isinstance(self.cur, Token), self.cur
         func = Function(self.cur, [])
         while True:
             tok = self.consume()
@@ -542,7 +558,7 @@ class SelectorParser:
     def __init__(self, inp):
         self.stream = CSSTokenStream(inp)
 
-    def expect(self, type: Tok = None, val=None) -> None:
+    def expect(self, type: Tok | None = None, val=None) -> None:
         if not self.stream.accept(type=type, val=val):
             self.parse_error(
                 f"Expected <{type}, val={val}> but got {self.stream.peek()} instead"
@@ -557,7 +573,7 @@ class SelectorParser:
         selector_list = self.parse_selector_list()
         return selector_list
 
-    def parse_selector_list(self) -> list[Selector]:
+    def parse_selector_list(self) -> list[ComplexSelector]:
         return self.parse_complex_selector_list()
 
     def parse_complex_selector_list(self) -> list[ComplexSelector]:
@@ -593,7 +609,7 @@ class SelectorParser:
 
     # <relative-selector>#
     # not used by any other rhs rule
-    def parse_relative_selector_list(self) -> list[ComplexSelector]:
+    def parse_relative_selector_list(self) -> list[tuple[Combinator, ComplexSelector]]:
         out = [self.parse_relative_selector()]
         while True:
             self.stream.consume_whitespace()
@@ -605,14 +621,19 @@ class SelectorParser:
     def parse_complex_selector(self) -> ComplexSelector:
         invalid = False
 
-        selectors = collections.deque([self.parse_compound_selector()])
+        selectors: collections.deque[CompoundSelector | Combinator] = collections.deque(
+            [self.parse_compound_selector()]
+        )
         while True:
             whitespace = self.stream.consume_whitespace()
+            comb = None
             if self.is_combinator():
                 comb = self.parse_combinator()
                 self.stream.consume_whitespace()
             elif whitespace:
                 comb = Combinator.DESCENDANT
+            if not comb:
+                break
 
             if self.is_compound_selector():
                 selectors.append(comb)
@@ -625,10 +646,14 @@ class SelectorParser:
 
         # selectors = [Compound0, Combinator1, Compound1, Combinator2, ...]
         # combine into [Compound0(), Compound1(Combinator1), ...]
-        compound_selectors = [selectors.popleft()]
+        first = selectors.popleft()
+        assert isinstance(first, CompoundSelector)
+        compound_selectors: list[CompoundSelector] = [first]
         while selectors:
             comb = selectors.popleft()
+            assert isinstance(comb, Combinator)
             s = selectors.popleft()
+            assert isinstance(s, CompoundSelector)
             s.combinator = comb
             compound_selectors.append(s)
 
@@ -648,7 +673,7 @@ class SelectorParser:
     # [ <pseudo-element-selector> <pseudo-class-selector>* ]* ]!
     # TODO apply semantic restrictions on pseudo element/class positions
     def parse_compound_selector(self) -> CompoundSelector:
-        selectors = []
+        selectors: list[SimpleSelector] = []
         pseudo_elements = []
         if self.is_type_selector():
             selectors.append(self.parse_type_selector())
@@ -686,6 +711,7 @@ class SelectorParser:
         self.parse_error(
             f"Error while parsing simple selector, expected type or subclass selector"
         )
+        assert False
 
     def parse_combinator(self) -> Combinator:
         comb = self.stream.consume()
@@ -703,8 +729,9 @@ class SelectorParser:
                 return Combinator.COLUMN
             else:
                 self.parse_error(f"Expected || but got |{self.stream.peek()}")
-                return None
+                assert False
         self.parse_error(f"Failed to parse combinator {comb}")
+        assert False
 
     # <wq-name> | <ns-prefix>? '*'
     def parse_type_selector(self) -> TypeSelector | UniversalSelector:
@@ -729,7 +756,7 @@ class SelectorParser:
         elif tok.type == Tok.DELIM and tok.val == "*":
             return self.stream.consume().val
         self.parse_error(f"Error parsing ns-prefix: {tok}")
-        return None
+        assert False
 
     # <ns-prefix>? <ident-token>
     def parse_wq_name(self) -> tuple[str, str]:
@@ -756,6 +783,7 @@ class SelectorParser:
         self.parse_error(
             "Error while parsing subclass: expected <id-selector> | <class-selector> | <attribute-selector> | <pseudo-class-selector>"
         )
+        assert False
 
     def parse_id_selector(self) -> IDSelector:
         hash_tok = self.stream.consume()
@@ -769,14 +797,15 @@ class SelectorParser:
             self.parse_error(
                 f"Error while parsing class selector: Expected ident, but got {self.stream.peek()}"
             )
-            return None
+            assert False
+        assert not isinstance(ident, bool)
         return ClassSelector(ident.val)
 
     # '[' <wq-name> ']' |
     # '[' <wq-name> <attr-matcher> [ <string-token> | <ident-token> ] <attr-modifier>? ']'
     def parse_attribute_selector(self) -> AttributeSelector:
         block = self.stream.consume()
-        assert isinstance(block, SimpleBlock)
+        assert isinstance(block, ComponentValue)
 
         # fork token stream over to child parser
         out = SelectorParser(block.val)._parse_attribute_selector()
@@ -790,7 +819,6 @@ class SelectorParser:
         self.stream.consume_whitespace()
 
         if self.stream.peek().type == Tok.EOF:
-            self.stream.consume()
             return AttributeSelector(
                 attr.casefold(), AttributeMatch.HAS_ATTR, namespace=namespace
             )
@@ -838,10 +866,11 @@ class SelectorParser:
                     self.parse_error(
                         f"Error while parrsing attribute matcher: {self.stream.peek()} is not a valid matcher (_, =, ~=, *=, |=, ^=, $=)"
                     )
-                    return None
+                    assert False
             self.stream.consume()
             self.stream.consume()
             return out
+        assert False, "Expected Attribute Match operator"
 
     def parse_attr_modifier(self) -> str:
         tok = self.stream.peek()
@@ -856,18 +885,29 @@ class SelectorParser:
     def parse_pseudo_class_selector(self) -> PseudoClassSelector:
         self.expect(type=Tok.COLON)
         tok = self.stream.peek()
-        if tok.type == Tok.IDENT:
-            ident = self.stream.consume()
-            return PseudoClassSelector(ident.val.lower(), None)
+        if tok.type == Tok.IDENT and tok.val:
+            self.stream.consume()
+            return PseudoClassSelector(tok.val.lower(), None)
         elif tok.type == Tok.FUNCTION:
             func = self.stream.consume()
-            assert isinstance(func, Function)
-            return PseudoClassSelector(func.name.val, func.val)
+            assert (
+                func.is_function()
+            ), "All function tokens should be replaced with Function Component Values, use CSSSyntaxParser.parse_css_stylesheet"
+
+            # recursively parse as a selector list
+            func_parser = CSSSyntaxParser()
+            cvls = func_parser.parse_comma_separated_component_value_list(func.val)
+            selector_list = [
+                SelectorParser(cvl).parse_complex_selector() for cvl in cvls
+            ]
+
+            name = str(func.function().name.val)
+            return PseudoClassSelector(name, selector_list)
         else:
             self.parse_error(
                 f"Error while parsing pseudo class selector: Expected either ident or function, got {self.stream.peek()}"
             )
-            return None
+            assert False
 
     def parse_pseudo_element_selector(self) -> PseudoElement:
         self.expect(type=Tok.COLON)

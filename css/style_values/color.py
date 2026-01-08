@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from css.lexer import Tok, Token
 from .base import StyleValue
@@ -189,7 +190,7 @@ class Color:
         return cls(r, g, b, a)
 
     @classmethod
-    def from_str(cls, string: str) -> "Color":
+    def from_str(cls, string: str) -> Color | None:
         if string.lower() in NAMED_COLOR_MAP:
             rgb_optional_a = NAMED_COLOR_MAP[string]
             return Color(*rgb_optional_a)

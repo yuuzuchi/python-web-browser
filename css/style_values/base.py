@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from css.compute_context import ComputeContext
-from css.lexer import Token
+    from css.lexer import Token
 
 class StyleValue:
 
@@ -13,7 +13,7 @@ class StyleValue:
         return self
 
     def to_token(self) -> Token:
-        pass
+        raise AssertionError("Cannot serialize generic StyleValue")
 
     def __str__(self):
         return repr(self)

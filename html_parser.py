@@ -1,3 +1,4 @@
+from ast import Assert
 from url import URL
 from dom import Document, Element, Text, Node
 
@@ -54,19 +55,20 @@ def get_document(node: Node) -> Document:
     if hasattr(node, "owner_document"):
         return node.owner_document
 
+    raise AssertionError("Node has no associated document")
+
 
 class HTMLParser:
 
-    def __init__(self, body: str, url: URL):
+    def __init__(self, body: str):
         self.body = body
         self.unfinished = []
-        self.url = url
 
-    def parse(self) -> Document:
+    def parse(self, url: URL) -> Document:
         text = []
         in_tag = False
         in_attribute = False  # quoted attributes may contain <, >, and space
-        quote = None  # either " or ' or None
+        quote: str | None = None
         i = 0
         n = len(self.body)
 
@@ -147,7 +149,7 @@ class HTMLParser:
         if not in_tag and text:
             self.add_text("".join(text))
 
-        return Document(self.finish(), self.url)
+        return Document(self.finish(), url)
 
     def is_in_pre(self) -> bool:
         return any(
@@ -367,5 +369,5 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         url = sys.argv[1]
     body = URL(url).request()
-    nodes = HTMLParser(body).parse()
+    nodes = HTMLParser(body).parse(URL(url))
     print(print_tree(nodes, source=True))

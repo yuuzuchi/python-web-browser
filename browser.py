@@ -186,8 +186,10 @@ class Browser:
 
 
 if __name__ == "__main__":
+    from log import set_debug
     import sys
 
+    # set_debug()
     command = None
     options = {}
     url = ""

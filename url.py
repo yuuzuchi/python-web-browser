@@ -14,8 +14,29 @@ def is_url(url: str):
 
 class URL:
     def __init__(self, url: str):
-        self.redirects = 0
-        self.s = None  # socket placeholder
+        # Common attributes for all URL types
+        self.url_str: str = url
+        self.scheme: str = ""
+        self.fragment: str | None = None
+        self.fragment_no_load_required: bool = False
+
+        # Socket management for http/https
+        self.s: socket.socket | ssl.SSLSocket | None = None
+        self.redirects: int = 0
+
+        # Data scheme attributes
+        self.data: str = ""
+        self.charset: str = ""
+        self.base64: bool = False
+        self.mime: str = ""
+
+        # HTTP/HTTPS/File scheme attributes
+        self.source: bool = False
+        self.host: str = ""
+        self.port: int = 0
+        self.path: str = ""
+
+        # Initialize the URL state
         self._init_state(url)
 
     def __str__(self):
@@ -28,6 +49,8 @@ class URL:
                 port_part = ""
             if self.scheme == "http" and self.port == 80:
                 port_part = ""
+            if self.scheme == "file":
+                port_part = ""
             return f"{self.scheme}://{self.host}{port_part}{self.path}{"#" + self.fragment if self.fragment else ""}"
         except Exception:
             return "about:blank"
@@ -37,6 +60,8 @@ class URL:
 
     def _init_state(self, url: str) -> None:
         self.url_str = url
+        self.fragment: str | None = None
+        self.fragment_no_load_required: bool = False
         """Extracts parts of URL
         - **scheme** - data: OR (view-source):[http, https, file]
         - data accepts **chartype** [US-ASCII, UTF-8] and **MIME-TYPE** [text/plain, text/html]"""
@@ -84,15 +109,17 @@ class URL:
                 url += "/"
             self.host, url = url.split("/", 1)
             self.path = "/" + url
-            self.port = 80 if self.scheme == "http" else 443
+            if self.scheme == "http":
+                self.port = 80
+            elif self.scheme == "https":
+                self.port = 443
 
             # custom ports
             if ":" in self.host:
-                self.host, self.port = self.host.split(":", 1)
-                self.port = int(self.port)
+                self.host, port_str = self.host.split(":", 1)
+                self.port = int(port_str)
 
             self.path, sep, fragment = self.path.partition("#")
-            self.fragment = None
             if sep:
                 self.fragment = fragment
 
@@ -245,6 +272,8 @@ class URL:
 
         # absolute path starting with /
         else:
+            if self.scheme == "file":
+                return f"{self.scheme}://{self.host}{base}"
             return f"{self.scheme}://{self.host}:{str(self.port)}{base}"
 
 

@@ -1,9 +1,3 @@
-import css.property
-import css.property
-import css.property
-import css.property
-from operator import is_
-from css.property import property_is_shorthand
 from css.style_values.shorthand import ShorthandStyleValue
 from dom import Document, Node, Element, Text
 from font_cache import get_font
@@ -14,6 +8,7 @@ from css.style_values.custom_ident import CustomIdentValue
 from css.style_values.list import ListStyleValue
 from css.style_values.dimension import PercentageValue, Length, LengthValue
 from css.style_values.keyword import KeywordValue
+from css.style_values.dimension import FontMetrics, LengthResolutionContext
 from css.units import LengthUnit
 from css.enums import (
     FONT_SIZE_SCALING_TABLE,
@@ -25,7 +20,11 @@ from css.enums import (
     larger_size,
     smaller_size,
 )
-from css.property import keyword_to_keyword_group_keyword, property_is_inherited
+from css.property import (
+    keyword_to_keyword_group_keyword,
+    property_is_inherited,
+    property_is_shorthand,
+)
 from css.selector_matcher import SelectorMatcher
 from css.selector_index import SelectorIndex
 from css.stylesheet import CSSStylesheet
@@ -34,7 +33,6 @@ from css.parser import CSSSyntaxParser
 from css.parse_context import ParseContext
 from css.initial_value_cache import property_initial_value
 from log import log, set_debug
-from css.style_values.dimension import FontMetrics, LengthResolutionContext
 from css.compute_context import ComputeContext
 
 """
@@ -357,7 +355,9 @@ class StyleComputer:
         elif isinstance(specified, PercentageValue):
             # resolve to px immediately
             base_px = self._get_base_font_size_px(node, True, not node.parent)
-            return LengthValue(Length.from_px(base_px * specified.percentage))
+            return LengthValue(
+                Length.from_px(base_px * specified.percentage.normalized)
+            )
 
         else:
             # value is already absolute (e.g. font-size: 16px;)
@@ -413,7 +413,9 @@ class StyleComputer:
             # by now, font size will have already been computed
             font_size = node.computed_style.get(Property.FONT_SIZE)
             assert isinstance(font_size, LengthValue)
-            length = Length.from_px(font_size.raw_value * specified.percentage)
+            length = Length.from_px(
+                font_size.raw_value * specified.percentage.normalized
+            )
             return LengthValue(length)
 
         assert False
@@ -421,13 +423,13 @@ class StyleComputer:
     def print_tree(self, prop: list[Property] | None = None) -> None:
         def recurse(node: Node):
             if isinstance(node, Element):
-                log(f"{node.tag}:")
+                print(f"{node.tag}:")
             if isinstance(node, Text):
-                log(f"'{node.text}':")
+                print(f"'{node.text}':")
 
             for key, val in node.computed_style.styles.items():
                 if not prop or key in prop:
-                    log(f"    {key.value} = {val};")
+                    print(f"    {key.value} = {val};")
 
             for child in node.children:
                 recurse(child)
@@ -451,6 +453,7 @@ if __name__ == "__main__":
     html = """
     <html>
         <body>
+            
             <h1>Title</h1>
             <div class="test">
                 <p id="p">p_inside</p>
@@ -460,6 +463,7 @@ if __name__ == "__main__":
                 <li><i>Item 1</i></li>
                 <li><b>It<i>em</b> 2</i></li>
             </ul>
+            
             <pre style="text-wrap-mode: nowrap;"> hello </pre>
         </body>
     </html>
@@ -485,7 +489,7 @@ if __name__ == "__main__":
     """
 
     url = URL("file:///test.html")
-    doc = HTMLParser(html, url).parse()
+    doc = HTMLParser(html).parse(url=url)
 
     parser = CSSSyntaxParser()
     stylesheet = parser.parse_css_stylesheet(
@@ -505,6 +509,9 @@ if __name__ == "__main__":
     print("Styling:")
     computer = StyleComputer(doc, [stylesheet, stylesheet2], history, vw=800, vh=600)
     computer.style_tree()
+    from html_parser import print_tree
+
+    log(print_tree(doc.document_element))
     computer.print_tree(
         prop=[
             Property.WHITE_SPACE_COLLAPSE,

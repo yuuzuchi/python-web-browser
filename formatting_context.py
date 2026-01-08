@@ -1,6 +1,7 @@
+from css.enums import WhiteSpaceCollapse
 import re
 import tkinter
-from font_cache import get_font, get_width
+from font_cache import get_width
 from layout import (
     BlockLayout,
     BreakLayout,
@@ -35,12 +36,13 @@ class BlockFormattingContext:
             self.block.height = sum([line.height for line in self.block.line_boxes])
             return
 
-        width = self.style.get("width", "auto")
-        height = self.style.get("height", "auto")
-        if width.endswith("px"):
-            self.block.width = int(width[:-2])
-        if height.endswith("px"):
-            self.block.height = int(height[:-2])
+        # TODO: implement width/height properties
+        # width = self.style.get("width", "auto")
+        # height = self.style.get("height", "auto")
+        # if width.endswith("px"):
+        #     self.block.width = int(width[:-2])
+        # if height.endswith("px"):
+        #     self.block.height = int(height[:-2])
 
         # format block children
         for child in self.block.children:
@@ -87,11 +89,12 @@ class InlineFormattingContext:
             if isinstance(layout, BreakLayout):
                 self.flush_line(layout.node)
             else:
-                font = self.get_font(style)
-                color = style.get("color")
+                font = style.font
+                assert font
+                color = style.computed_color().to_hex_str()[:7]
 
                 # split on newlines
-                if style.get("white-space") == "pre":
+                if style.computed_white_space_collapse() == WhiteSpaceCollapse.PRESERVE:
                     parts = layout.text_run.split("\n")
                     for i, line in enumerate(parts):
                         self.add_fragment_to_line(line, font, color, layout, pre=True)
@@ -176,7 +179,7 @@ class InlineFormattingContext:
         elif len(self.curr_line.children) == 1 and isinstance(
             self.curr_line.children[0], BreakLayout
         ):
-            br_font = self.get_font(self.curr_line.children[0].computed_style())
+            br_font = self.curr_line.children[0].computed_style().font
             self.curr_line.height = br_font.cached_metrics["linespace"]
         else:
             max_ascent = max(
@@ -199,16 +202,6 @@ class InlineFormattingContext:
         self.cy += self.curr_line.height
         self.out.append(self.curr_line)
         self.curr_line = self.new_line(DOM_node_reference)
-
-    # get cached font from style
-    def get_font(self, style: dict):
-        family = style.get("font-family")
-        weight = style.get("font-weight", 16)
-        fontstyle = style.get("font-style", "roman")
-        if fontstyle == "normal":
-            fontstyle = "roman"
-        size = int(float(style["font-size"][:-2]) * 0.75)
-        return get_font(family=family, size=size, weight=weight, style=fontstyle)
 
     # binary search for latest possible place to hyphenate word
     def findsplit(self, parts, font):

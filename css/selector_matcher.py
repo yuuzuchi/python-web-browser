@@ -1,3 +1,6 @@
+from css.enums import Origin
+from css.parse_context import ParseContext
+from css.parser import CSSSyntaxParser
 import re
 from dom import Node, Element
 from history import HistoryManager
@@ -80,13 +83,13 @@ class SelectorMatcher:
                 if not selector.args:
                     return False
                 return selector.args != [] and any(
-                    s.matches(node) for s in selector.args
+                    self.matches(s, node) for s in selector.args
                 )
             case PseudoClass.NOT:
                 if not selector.args:
                     return False
                 return selector.args != [] and not any(
-                    s.matches(node) for s in selector.args
+                    self.matches(s, node) for s in selector.args
                 )
             case PseudoClass.HAS:
                 return self._matches_has(selector, node)
@@ -138,30 +141,47 @@ class SelectorMatcher:
                     return False
 
                 case Combinator.CHILD:
-                    if not self.matches(s, elem.parent):
+                    if not self.matches(s, elem):
+                        return False
+                    if not elem.parent:
                         return False
                     return recurse(elem.parent, idx - 1)
 
                 case Combinator.NEXT_SIBLING:
-                    siblings = elem.parent.children
-                    sibling_elem_idx = siblings.index(elem)
-                    if sibling_elem_idx == -1:
+                    if not self.matches(s, elem):
                         return False
-                    if not any(
-                        self.matches(s, sibling)
-                        for sibling in siblings[:sibling_elem_idx]
-                    ):
+                    if not elem.parent:
                         return False
-                    return recurse(elem, idx - 1)
 
-                case Combinator.SUBSEQUENT_SIBLING:
                     siblings = elem.parent.children
                     sibling_elem_idx = siblings.index(elem)
                     if sibling_elem_idx <= 0:
                         return False
-                    if not self.matches(s, siblings[sibling_elem_idx - 1]):
+
+                    # check if the immediately preceding sibling matches
+                    prev_sibling = siblings[sibling_elem_idx - 1]
+                    if not isinstance(prev_sibling, Element):
                         return False
-                    return recurse(elem, idx - 1)
+                    return recurse(prev_sibling, idx - 1)
+
+                case Combinator.SUBSEQUENT_SIBLING:
+                    # Subsequent sibling: A ~ B (B follows A, not necessarily immediately)
+                    if not self.matches(s, elem):
+                        return False
+                    if not elem.parent:
+                        return False
+
+                    siblings = elem.parent.children
+                    sibling_elem_idx = siblings.index(elem)
+                    if sibling_elem_idx <= 0:
+                        return False
+
+                    # Check if any preceding sibling matches
+                    for i in range(sibling_elem_idx - 1, -1, -1):
+                        sibling = siblings[i]
+                        if isinstance(sibling, Element) and recurse(sibling, idx - 1):
+                            return True
+                    return False
 
                 case _:
                     return False
@@ -184,3 +204,48 @@ class SelectorMatcher:
                 return True
 
         return False
+
+
+if __name__ == "__main__":
+    from css.lexer import Lexer
+    from css.parser import SelectorParser
+    from html_parser import HTMLParser
+    from url import URL
+
+    html_string = """
+    <html>
+        <body>
+            <div class="container" rel>
+                <h2>bogus</h2>
+                <h1>title</h1>
+                <p id="text">Hello World</p>
+            </div>
+        </body>
+    </html>
+    """
+
+    css_string = "div:has(h1) { color: green; }"
+
+    print(f"Parsing rule: '{css_string}'")
+    tokens = Lexer(css_string).parse()
+    parser = CSSSyntaxParser()
+    stylesheet = parser.parse_css_stylesheet(tokens, ParseContext(Origin.AUTHOR_ORIGIN))
+    complex_selectors = stylesheet.rules[0].selector_list
+
+    print(f"Parsed {len(complex_selectors)} complex selectors:")
+    for s in complex_selectors:
+        print(f"  {s}")
+
+    doc = HTMLParser(html_string).parse(URL("about:blank"))
+    matcher = SelectorMatcher(HistoryManager())
+    print()
+
+    def match_recurse(node):
+        for s in complex_selectors:
+            if matcher.matches(s, node):
+                print("Matched with node", node)
+        if isinstance(node, Element):
+            for child in node.children:
+                match_recurse(child)
+
+    match_recurse(doc.document_element)

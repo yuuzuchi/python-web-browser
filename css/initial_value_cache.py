@@ -8,8 +8,9 @@ from css.style_values.base import StyleValue
 
 _initial_value_cache = {}
 
-
+# TODO: replace warns with asserts after value parser is completed
 def property_initial_value(property: Property) -> StyleValue:
+    """Gets initial values for given property, and caches the result."""
     # initial value for property cache hit
     if property in _initial_value_cache:
         return _initial_value_cache[property]

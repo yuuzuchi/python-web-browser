@@ -1,42 +1,50 @@
+from css.components import ComponentValue
 from css.lexer import Tok, Token
+from typing import Sequence
 from log import log
 
 class CSSTokenStream:
-    def __init__(self, tokens: list[Token]):
-        self.cursor = 0
+
+    def __init__(self, tokens: Sequence[Token | ComponentValue]):
+        self.cursor: int = 0
         self.tokens = tokens
         self.cur = None
-        self.marks = []
+        self.marks: list[int] = []
         self.committed = False
         self.snapshot = [self.cursor, self.marks[:]]
 
-    def next(self) -> Token:
+    # ONLY TO BE USED IN CSS PARSER
+    def next(self) -> Token | ComponentValue:
         self.cursor += 1
         if self.cursor > len(self.tokens):
             return Token(type=Tok.EOF, val=None)
-        return self.tokens[self.cursor - 1]
 
-    def peek(self, n: int = 1) -> Token:
+        res = self.tokens[self.cursor - 1]
+        return res
+
+    def peek(self, n: int = 1) -> ComponentValue:
         if 0 <= self.cursor + n - 1 < len(self.tokens):
-            return self.tokens[self.cursor + n - 1]
+            return ComponentValue(self.tokens[self.cursor + n - 1])
         else:
-            return Token(type=Tok.EOF, val=None)
+            return ComponentValue(Token(type=Tok.EOF, val=None))
 
     def has_next(self) -> bool:
         return (
             self.cursor < len(self.tokens) and self.tokens[self.cursor].type != Tok.EOF
         )
 
-    def consume(self) -> Token:
+    def consume(self) -> ComponentValue:
         self.cur = self.tokens[self.cursor]
         self.next()
-        return self.cur
+        return ComponentValue(self.cur)
 
-    def accept(self, type: Tok, val=None) -> Token | bool:
+    def accept(self, type: Tok | None, val=None) -> ComponentValue | bool:
         n = self.peek()
-        if type and n.type != type:
+        if not isinstance(n.underlying, Token):
             return False
-        if val and n.val != val:
+        if type and not n.is_tok(type):
+            return False
+        if val and n.tok_val != val:
             return False
         return self.consume()
 
@@ -48,7 +56,7 @@ class CSSTokenStream:
 
     def consume_whitespace(self) -> Token | None:
         is_whitespace = False
-        while self.peek().type == Tok.WHITESPACE:
+        while self.peek().is_tok(Tok.WHITESPACE):
             is_whitespace = True
             self.consume()
 
@@ -57,10 +65,10 @@ class CSSTokenStream:
     def consume_until(self, type: Tok, val=None) -> None:
         while True:
             n = self.peek()
-            if n.type == type:
-                if n.val == val or not val:
+            if n.is_tok(type):
+                if n.tok_val == val or not val:
                     return
-            if n.type == Tok.EOF:
+            if n.is_tok(Tok.EOF):
                 return
             self.consume()
 
@@ -77,7 +85,7 @@ class CSSTokenStream:
     class _Transaction:
         def __init__(self, stream: "CSSTokenStream"):
             self.stream = stream
-            self.snapshot = [stream.cursor, stream.marks[:]]
+            self.cursor_snap, self.marks_snap = stream.cursor, stream.marks[:]
             self.committed = False
 
         def commit(self) -> None:
@@ -88,8 +96,8 @@ class CSSTokenStream:
 
         def __exit__(self, exc_type, exc, tb):
             if not self.committed:
-                self.stream.cursor = self.snapshot[0]
-                self.stream.marks = self.snapshot[1]
+                self.stream.cursor = self.cursor_snap
+                self.stream.marks = self.marks_snap
 
     def transaction(self):
         return self._Transaction(self)

@@ -1,3 +1,6 @@
+from css.property import keyword_to_keyword_group_keyword
+from css.style_values.display import Display
+from css.property import keyword_in_keyword_group
 from css.style_values.dimension import TimeValue
 from css.style_values.dimension import AngleValue
 from css.style_values.dimension import LengthValue
@@ -9,7 +12,17 @@ from css.style_values.shorthand import ShorthandStyleValue
 from css.style_values.keyword import KeywordValue
 from css.style_values.list import ListStyleValue
 from css.style_values.base import StyleValue
-from css.enums import Property, Keyword, ValueType
+from css.style_values.display import DisplayValue
+from css.enums import (
+    Property,
+    Keyword,
+    ValueType,
+    DisplayBox,
+    DisplayInside,
+    DisplayInternal,
+    DisplayLegacy,
+    DisplayOutside,
+)
 from typing import Callable
 from css.value_parser import ValueParser
 from css.property import (
@@ -22,6 +35,7 @@ from css.property import (
     property_accepts_percentage,
     property_accepts_length,
     property_accepts_time,
+    property_accepted_keywords,
 )
 from css.lexer import Lexer, Token, Tok
 from css.token_stream import CSSTokenStream
@@ -120,6 +134,8 @@ class PropertyParser:
 
         # 3. dispatch to property-specific parsers
         match property:
+            case Property.DISPLAY:
+                return parse_as(self.parse_display_value)
             case Property.FONT:
                 return parse_as(self.parse_font_shorthand)
             case Property.FONT_FAMILY:
@@ -130,6 +146,8 @@ class PropertyParser:
                 return parse_as(self.parse_white_space_shorthand)
             case Property.WHITE_SPACE_TRIM:
                 return parse_as(self.parse_white_space_trim_value)
+            case _:
+                pass
 
         # 4. dispatch positional value list shorthands (margin, inset, border-radius, etc)
         if property_is_positional_value_list_shorthand(property):
@@ -244,7 +262,7 @@ class PropertyParser:
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
                                 isinstance(value, AngleValue) and property_accepts_angle(property, value.to_degrees())) or (
-                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage)
+                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage.value)
                             ):  # fmt: on
                                 tx.commit()
                                 return value
@@ -282,7 +300,7 @@ class PropertyParser:
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
                                 #isinstance(value, FrequencyValue) and property_accepts_frequency(property, value.frequency)) or (
-                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage)
+                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage.value)
                             ):  # fmt: on
                                 tx.commit()
                                 return value
@@ -309,7 +327,7 @@ class PropertyParser:
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
                                 isinstance(value, LengthValue) and property_accepts_length(property, value.length.value)) or (
-                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage)
+                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage.value)
                             ):  # fmt: on
                                 tx.commit()
                                 return value
@@ -342,7 +360,7 @@ class PropertyParser:
                             # fmt: off
                             if isinstance(value, CalculatedValue) or (
                                 isinstance(value, TimeValue) and property_accepts_time(property, value.raw_value)) or (
-                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage)
+                                isinstance(value, PercentageValue) and property_accepts_percentage(property, value.percentage.value)
                             ):  # fmt: on
                                 tx.commit()
                                 return value
@@ -361,7 +379,9 @@ class PropertyParser:
                     if value := self.value_parser.parse_percentage_value():
                         if isinstance(value, CalculatedValue) or (
                             isinstance(value, PercentageValue)
-                            and property_accepts_percentage(property, value.percentage)
+                            and property_accepts_percentage(
+                                property, value.percentage.value
+                            )
                         ):
                             tx.commit()
                             return value
@@ -395,6 +415,109 @@ class PropertyParser:
                 if keyword.is_css_wide():
                     self.stream.consume()  # ident
                     return keyword
+
+    # ================================= Display ================================= #
+
+    # [ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy>
+    def parse_display_value(self) -> DisplayValue | None:
+        self.stream.consume_whitespace()
+        tok = self.stream.peek()
+        if tok.type != Tok.IDENT:
+            return None
+        if tok.val not in Keyword:
+            return None
+        keyword = Keyword(tok.val)
+
+        # verify keyword is a display keyword
+        valid_keywords = property_accepted_keywords(Property.DISPLAY)
+        if keyword not in valid_keywords:
+            return None
+
+        # 1. check for exclusive single-values [<display-internal> | <display-box> | <display-legacy>]
+        if k := keyword_to_keyword_group_keyword(keyword, DisplayBox):
+            self.stream.consume()
+            assert isinstance(k, DisplayBox)
+            return DisplayValue(Display(box=k))
+        if k := keyword_to_keyword_group_keyword(keyword, DisplayInternal):
+            self.stream.consume()
+            assert isinstance(k, DisplayInternal)
+            return DisplayValue(Display(internal=k))
+        if k := keyword_to_keyword_group_keyword(keyword, DisplayLegacy):
+            self.stream.consume()
+            assert isinstance(k, DisplayLegacy)
+            return DisplayValue(Display(legacy=k))
+
+        # 2. Parse [ <display-outside> || <display-inside> ] | <display-listitem>
+        # <display-listitem> = <display-outside>? && [ flow | flow-root ]? && list-item
+
+        outside: DisplayOutside | None = None
+        inside: DisplayInside | None = None
+        is_list_item = False
+
+        # parse up to 3 keywords (we don't actually keep track)
+        with self.stream.transaction() as tx:
+            while True:
+                current_tok = self.stream.peek()
+
+                if current_tok.type != Tok.IDENT:
+                    break
+                if current_tok.val not in Keyword:
+                    break
+
+                current_kw = Keyword(current_tok.val)
+
+                # return None on any duplicate fields
+                if current_kw == Keyword.LIST_ITEM:
+                    if is_list_item:
+                        return
+                    is_list_item = True
+                elif k := keyword_to_keyword_group_keyword(current_kw, DisplayOutside):
+                    if outside:
+                        return
+                    assert isinstance(k, DisplayOutside)
+                    outside = k
+                elif k := keyword_to_keyword_group_keyword(current_kw, DisplayInside):
+                    if inside:
+                        return
+                    assert isinstance(k, DisplayInside)
+                    inside = k
+                else:
+                    return
+
+                self.stream.consume()
+                self.stream.consume_whitespace()
+                if not self.stream.has_next():
+                    break
+
+            if not (outside or inside or is_list_item):
+                return None
+
+            # defaults
+            if is_list_item:
+                if inside and inside not in (
+                    DisplayInside.FLOW,
+                    DisplayInside.FLOW_ROOT,
+                ):
+                    return None
+
+                if not inside:
+                    inside = DisplayInside.FLOW
+                if not outside:
+                    outside = DisplayOutside.BLOCK
+
+                tx.commit()
+                return DisplayValue(
+                    Display(outside=outside, inside=inside, is_list_item=True)
+                )
+
+            # standard outside/inside
+            if not outside:
+                outside = DisplayOutside.BLOCK
+            if not inside:
+                inside = DisplayInside.FLOW
+
+            tx.commit()
+            return DisplayValue(Display(outside=outside, inside=inside))
 
     # ================================= Fonts ================================= #
 
@@ -710,9 +833,11 @@ if __name__ == "__main__":
     declaration = """
     
     /*font: normal normal bold smaller/1.5 "Arial";*/
-    white-space: discard-before discard-after nowrap preserve ;
+    /*white-space: discard-before discard-after nowrap preserve ;*/
     /*white-space-trim: discard-before discard-after;*/
     /*line-height: 1px;*/
+    /*display: block flow;*/
+    color: green;
     
     """
     toks = Lexer(declaration).parse()

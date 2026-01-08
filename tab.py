@@ -1,9 +1,15 @@
+from css.enums import Property
+from css.style_computer import StyleComputer
+from css.stylesheet import CSSStylesheet
+from css.parse_context import ParseContext
+from css.enums import Origin
+from css.parser import CSSSyntaxParser
 from dataclasses import dataclass
 import time
 import tkinter
-from css_parser import CSSParser, print_rules
 from history import HistoryManager
-from html_parser import Element, HTMLParser, Text, print_tree
+from html_parser import HTMLParser, print_tree
+from dom import Element, Text, Document
 from layout import (
     MARGINS,
     AnonymousLayout,
@@ -25,7 +31,7 @@ from url import URL
 class ScrollState:
     is_dragging: bool = False
     drag_offset: int = 0
-    pos: int = 0
+    pos: float = 0
     bar_y: int = 0
     bar_width: int = MARGINS[4]
     bar_height: int = 0
@@ -50,25 +56,26 @@ class Tab:
         self.history_manager = history_manager
         self.options = options
         self.scroll = ScrollState()
-        self.DOM = []
+        self.DOM: Document
         self.rootnode = None
         self.text_height = 0
         self.tab_height = tab_height
         self.offset = 0
         self.dirty = True  # render frame
 
-        self.document_layout = None
+        self.document_layout: DocumentLayout
         self.display_list = []
-        self.url = None
         self.history = [url]
         self.forward_history = []
         self.title = "blank"
         self._on_title_change = None
         self._on_open_in_new_tab = None
 
-        self.css_parser = CSSParser(open("browser.css").read(), history_manager)
-        self.DEFAULT_STYLE_SHEET = self.css_parser.parse(origin_priority=1)
-        self.rules = []
+        self.css_parser = CSSSyntaxParser()
+        self.DEFAULT_STYLE_SHEET = self.css_parser.parse_css_stylesheet(
+            open("css/browser.css").read(), ParseContext(origin=Origin.USER_AGENT)
+        )
+        self.stylesheets: list[CSSStylesheet] = []
 
         self.load(url)
 
@@ -90,19 +97,20 @@ class Tab:
     def load(self, url: URL, fragment_scroll_animation=False):
         self.url = url
 
-        if hasattr(url, "fragment_no_load_required"):  # clicked on fragment link
+        if url.fragment_no_load_required:  # clicked on fragment link
+            assert url.fragment
             self.jump_to_fragment(
                 url.fragment, scroll_animation=fragment_scroll_animation
             )
             return
 
         body = url.request()
-        self.DOM = HTMLParser(body, url).parse()
+        self.DOM = HTMLParser(body).parse(url=url)
         self.rootnode = self.DOM.document_element
 
+        self.stylesheets = [self.DEFAULT_STYLE_SHEET]
+
         # css rules
-        self.css_parser.reset()
-        self.rules = self.DEFAULT_STYLE_SHEET.copy()
         tree_as_list = tree_to_list(self.rootnode)
         for node in tree_as_list:
             # external stylesheets
@@ -115,9 +123,14 @@ class Tab:
                 style_url = url.resolve(node.attributes["href"])
                 try:
                     body = style_url.request()
-                    self.rules.extend(self.css_parser.parse(origin_priority=1, s=body))
-                except:
+                except Exception as e:
                     print("Could not fetch stylesheet from", style_url)
+                    print(e)
+                self.stylesheets.append(
+                    self.css_parser.parse_css_stylesheet(
+                        body, ParseContext(origin=Origin.AUTHOR_ORIGIN)
+                    )
+                )
 
             elif isinstance(node, Text) and node.parent.tag == "title":
                 self.title = node.text
@@ -125,16 +138,29 @@ class Tab:
                     self._on_title_change(self.title)
 
         start_time = time.perf_counter()
-        self.css_parser.style(self.rootnode, self.rules)
+        computer = StyleComputer(
+            self.DOM,
+            self.stylesheets,
+            self.history_manager,
+            self.canvas.winfo_width(),
+            self.canvas.winfo_height(),
+        )
+        computer.style_tree()
         elapsed_time = time.perf_counter() - start_time
 
         self.document_layout = DocumentLayout(self.rootnode, self.canvas)
         # conditional debug output controlled by CLI flags:
-        if self.options.get("t", False):
+        if self.options.get("t"):
             print(print_tree(self.rootnode, source=True))
-        if self.options.get("c", False):
-            print_rules(self.rules)
-            print(f"style() in{elapsed_time: .6f} seconds, {len(self.rules)} rules")
+        if self.options.get("c"):
+            computer.print_tree(
+                prop=[
+                    Property.COLOR,
+                ]
+            )
+            print(
+                f"style() in{elapsed_time: .6f} seconds, {len(self.stylesheets)} stylesheets"
+            )
 
         print("\nCalculating layout...\n")
         self._layout()
@@ -258,25 +284,35 @@ class Tab:
 
         # calculate x, y RELATIVE to scroll
         y += self.scroll.pos
-        elt = self.get_layout_at_coords(x, y).node
-        while elt:
-            if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
-                print("Clicked: ", elt.attributes["href"])
-                return self.navigate(elt.attributes["href"])
-            elt = elt.parent
+        if obj := self.get_layout_at_coords(x, y):
+            elt = obj.node
+            while elt:
+                if (
+                    isinstance(elt, Element)
+                    and elt.tag == "a"
+                    and "href" in elt.attributes
+                ):
+                    print("Clicked: ", elt.attributes["href"])
+                    return self.navigate(elt.attributes["href"])
+                elt = elt.parent
 
     def on_middlemouse_down(self, x, y):
         y += self.scroll.pos
-        elt = self.get_layout_at_coords(x, y).node
-        while elt:
-            if isinstance(elt, Element) and elt.tag == "a" and "href" in elt.attributes:
-                print("Open in new tab:", elt.attributes["href"])
-                url = self.url.resolve(elt.attributes["href"])
-                if self._on_open_in_new_tab:
-                    return self._on_open_in_new_tab(url)
+        if obj := self.get_layout_at_coords(x, y):
+            elt = obj.node
+            while elt:
+                if (
+                    isinstance(elt, Element)
+                    and elt.tag == "a"
+                    and "href" in elt.attributes
+                ):
+                    print("Open in new tab:", elt.attributes["href"])
+                    url = self.url.resolve(elt.attributes["href"])
+                    if self._on_open_in_new_tab:
+                        return self._on_open_in_new_tab(url)
 
-                print("Failed to open in new tab")
-            elt = elt.parent
+                    print("Failed to open in new tab")
+                elt = elt.parent
 
     def handle_drag_scroll(self, x, y):
         # scrollbar drag
@@ -301,7 +337,7 @@ class Tab:
     def invalidate(self):
         self.dirty = True
 
-    def get_layout_at_coords(self, x, y):
+    def get_layout_at_coords(self, x, y) -> BlockLayout | AnonymousLayout | None:
         objs = []
 
         for obj in tree_to_list(self.document_layout):
