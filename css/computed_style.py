@@ -1,35 +1,52 @@
 from log import warn
-from css.enums import WhiteSpace
 from css.property import keyword_to_keyword_group_keyword
 from css.enums import WhiteSpaceCollapse
 from css.style_values.color import ColorValue, Color
 from css.style_values.display import DisplayValue, Display
 from css.style_values.numeric import NumberValue
 from css.style_values.dimension import LengthValue
-from dataclasses import field, dataclass
 from css.style_values.keyword import KeywordValue
 from css.style_values.base import StyleValue
 from css.enums import Property, Keyword
+from css.color_compute_context import ColorComputeContext
 from tkinter.font import Font
 
 
-@dataclass
 class ComputedStyle:
-    styles: dict[Property, StyleValue] = field(init=False, default_factory=dict)
-    font: Font | None = field(init=False, default=None)
+    """Stores computed abstract values (`StyleValue`) for a DOM element
+    Provides methods to convert StyleValues into value objects,
+    e.g. `computed_line_height()` -> `LengthValue` -> `px: float`
+    The `ComputedValue` class, which lives on each `layout` element, stores these value objects.
+
+    *NOTE: Not all of these values can be used directly during the layout/rendering phase.
+    The `used/actual` values are produced during the layout phase and stored on each layout node.*
+    """
+
+    def __init__(self):
+        self.styles: dict[Property, StyleValue] = dict()
+        self.font: Font | None = None
 
     def get(self, property: Property) -> StyleValue | None:
         return self.styles.get(property)
 
-    def computed_color(self) -> Color:
-        color = self.styles.get(Property.COLOR)
+    def computed_color(
+        self,
+        prop: Property,
+        context: ColorComputeContext,
+        fallback: Color = Color(0, 0, 0),
+    ) -> Color:
+        """Requires a property that contains a color (Keyword.is_color)"""
+        color = self.styles.get(prop)
         if isinstance(color, ColorValue):
             return color.color
         elif isinstance(color, KeywordValue):
+            if color.keyword == Keyword.CURRENTCOLOR:
+                return context.current_color
             if color := Color.from_str(color.keyword.value):
                 return color
+            # TODO: handle system colors
             warn(f"Could not compute color {color}")
-        return Color(0, 0, 0)
+        return fallback
 
     def computed_font_size(self) -> float:
         font_size = self.styles.get(Property.FONT_SIZE)

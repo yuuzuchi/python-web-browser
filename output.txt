@@ -1,0 +1,545 @@
+request: https://browser.engineering
+Statusline: HTTP/1.1 200 OK
+request: https://browser.engineering:443/fonts.css
+Statusline: HTTP/1.1 200 OK
+request: https://browser.engineering:443/book.css
+Statusline: HTTP/1.1 200 OK
+html:
+    font-style = normal;
+head:
+    font-style = normal;
+meta:
+    font-style = normal;
+meta:
+    font-style = normal;
+meta:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+meta:
+    font-style = normal;
+meta:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+link:
+    font-style = normal;
+title:
+    font-style = normal;
+'Web Browser Engineering':
+    font-style = normal;
+body:
+    font-style = normal;
+header:
+    font-style = normal;
+h1:
+    font-style = normal;
+'Web Browser Engineering':
+    font-style = normal;
+p:
+    font-style = italic;
+'Pavel Panchekha &amp; Chris Harrelson':
+    font-style = italic;
+a:
+    font-style = normal;
+'Twitter':
+    font-style = normal;
+' ·
+':
+    font-style = normal;
+a:
+    font-style = normal;
+'Blog':
+    font-style = normal;
+' ·
+':
+    font-style = normal;
+a:
+    font-style = normal;
+'Discussions':
+    font-style = normal;
+nav:
+    font-style = normal;
+ul:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Introduction':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Part
+1: Loading Pages':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Part 2: Viewing Documents':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Part 3: Running
+Applications':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Part 4: Modern Browsers':
+    font-style = normal;
+p:
+    font-style = normal;
+'Web browsers are ubiquitous, but how do they work? This book
+explains, building a basic but complete web browser, from networking to
+JavaScript, in a couple thousand lines of Python.':
+    font-style = normal;
+div:
+    font-style = normal;
+figure:
+    font-style = normal;
+img:
+    font-style = normal;
+figcaption:
+    font-style = normal;
+'The cover for Web Browser Engineering,
+from Oxford University Press':
+    font-style = normal;
+section:
+    font-style = normal;
+h1:
+    font-style = normal;
+'Buy ':
+    font-style = normal;
+em:
+    font-style = italic;
+'Web Browser Engineering':
+    font-style = italic;
+p:
+    font-style = normal;
+em:
+    font-style = italic;
+'Web Browser Engineering':
+    font-style = italic;
+' is available in English for about
+$50 from ':
+    font-style = normal;
+a:
+    font-style = normal;
+'Bookshop.org':
+    font-style = normal;
+',
+':
+    font-style = normal;
+a:
+    font-style = normal;
+'B&amp;N':
+    font-style = normal;
+',
+or ':
+    font-style = normal;
+a:
+    font-style = normal;
+'Amazon':
+    font-style = normal;
+', and in Korean from ':
+    font-style = normal;
+a:
+    font-style = normal;
+'Yes24':
+    font-style = normal;
+' or
+directly from ':
+    font-style = normal;
+a:
+    font-style = normal;
+'Hanbit':
+    font-style = normal;
+'.
+More translations coming soon.':
+    font-style = normal;
+figure:
+    font-style = normal;
+img:
+    font-style = normal;
+figcaption:
+    font-style = normal;
+'here':
+    font-style = normal;
+p:
+    font-style = normal;
+'Follow this book’s ':
+    font-style = normal;
+a:
+    font-style = normal;
+'blog':
+    font-style = normal;
+', ':
+    font-style = normal;
+a:
+    font-style = normal;
+'Mastodon':
+    font-style = normal;
+', or ':
+    font-style = normal;
+a:
+    font-style = normal;
+'Twitter':
+    font-style = normal;
+' for updates. There’s
+a ':
+    font-style = normal;
+a:
+    font-style = normal;
+'discussion
+forum':
+    font-style = normal;
+' for the book on Github, or you can ':
+    font-style = normal;
+a:
+    font-style = normal;
+'email us directly':
+    font-style = normal;
+'.':
+    font-style = normal;
+section:
+    font-style = normal;
+h1:
+    font-style = normal;
+'Introduction':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Preface':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Browsers and the Web':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'History of the Web':
+    font-style = normal;
+h1:
+    font-style = normal;
+'Part 1: Loading Pages':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Downloading Web Pages':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+URLs and HTTP requests':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Drawing to the Screen':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Creating windows and drawing to a canvas':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Formatting Text':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Word wrapping and line spacing':
+    font-style = italic;
+h1:
+    font-style = normal;
+'Part 2: Viewing Documents':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Constructing an HTML Tree':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Parsing and fixing HTML':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Laying Out Pages':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Inline and block layout':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Applying Author Styles':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Parsing and applying CSS':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Handling Buttons and Links':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Hyperlinks and browser chrome':
+    font-style = italic;
+h1:
+    font-style = normal;
+'Part 3: Running Applications':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Sending Information to Servers':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Form submission and web servers':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Running Interactive Scripts':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Changing the DOM and reacting to events':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Keeping Data Private':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Cookies and logins, XSS and CSRF':
+    font-style = italic;
+h1:
+    font-style = normal;
+'Part 4: Modern Browsers':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Adding Visual Effects':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Blending, clipping, and compositing':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Scheduling Tasks and Threads':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+The event loop and the rendering pipeline':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Animating and Compositing':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Smooth animations using the GPU':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Making Content Accessible':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Keyboard input, zooming, and the accessibility tree':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Supporting Embedded Content':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Images, iframes, and scripting':
+    font-style = italic;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Reusing Previous Computation':
+    font-style = normal;
+br:
+    font-style = italic;
+'
+Invalidation, editing, and correctness':
+    font-style = italic;
+div:
+    font-style = normal;
+h1:
+    font-style = normal;
+'Conclusion':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'What Wasn’t Covered':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'A Changing Landscape':
+    font-style = normal;
+h1:
+    font-style = normal;
+'Appendix':
+    font-style = normal;
+ol:
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Glossary':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Bibliography':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'About the Authors':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'Contributors':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'List of courses taught from this
+book':
+    font-style = normal;
+li:
+    font-style = italic;
+a:
+    font-style = normal;
+'One-page version':
+    font-style = normal;
+footer:
+    font-style = italic;
+'
+  &copy; 2018&ndash;2023 ':
+    font-style = italic;
+a:
+    font-style = italic;
+'Pavel Panchekha':
+    font-style = italic;
+' &amp; ':
+    font-style = italic;
+a:
+    font-style = italic;
+'Chris Harrelson':
+    font-style = italic;
+script:
+    font-style = normal;
+script:
+    font-style = normal;
+style() in 0.418387 seconds, 3 stylesheets
+
+Calculating layout...
+
+layout() 1x1 in 1.038760 seconds, 312 nodes
+layout() 1282x722 in 0.006196 seconds, 312 nodes
+layout() 1264x1396 in 0.004002 seconds, 312 nodes

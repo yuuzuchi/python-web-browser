@@ -838,6 +838,7 @@ if __name__ == "__main__":
     /*line-height: 1px;*/
     /*display: block flow;*/
     color: green;
+    background-color: currentColor;
     
     """
     toks = Lexer(declaration).parse()

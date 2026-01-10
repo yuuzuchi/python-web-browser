@@ -1,3 +1,5 @@
+from css.enums import Property
+from css.color_compute_context import ColorComputeContext
 from css.enums import WhiteSpaceCollapse
 import re
 import tkinter
@@ -90,11 +92,10 @@ class InlineFormattingContext:
                 self.flush_line(layout.node)
             else:
                 font = style.font
-                assert font
-                color = style.computed_color().to_hex_str()[:7]
+                color = style.color.to_hex_str()[:7]
 
                 # split on newlines
-                if style.computed_white_space_collapse() == WhiteSpaceCollapse.PRESERVE:
+                if style.white_space_collapse == WhiteSpaceCollapse.PRESERVE:
                     parts = layout.text_run.split("\n")
                     for i, line in enumerate(parts):
                         self.add_fragment_to_line(line, font, color, layout, pre=True)

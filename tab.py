@@ -155,7 +155,7 @@ class Tab:
         if self.options.get("c"):
             computer.print_tree(
                 prop=[
-                    Property.COLOR,
+                    Property.FONT_STYLE,
                 ]
             )
             print(
@@ -222,7 +222,6 @@ class Tab:
                 layout = layout.parent
 
             if target_fragment in layout.node.attributes.get("id", ""):
-                print("oh")
                 self.scroll.target_pos = fragment.y
                 if not scroll_animation:
                     self.scroll.pos = self.scroll.target_pos
@@ -322,6 +321,7 @@ class Tab:
             self.scroll.target_pos = self.scroll.pos = (
                 self.text_height * bar_y
             ) / self.tab_height
+            self.invalidate()
 
         # absolute scroll (click-to-jump)
         else:

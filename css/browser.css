@@ -68,11 +68,11 @@ strong {
 }
 
 small {
-  font-size: 90%;
+  font-size: smaller;
 }
 
 big {
-  font-size: 110%;
+  font-size: larger;
 }
 
 h1 {

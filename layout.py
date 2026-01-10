@@ -1,13 +1,13 @@
-from css.enums import DisplayOutside
+from css.style_values.color import Color
+from dom import Node
+from css.color_compute_context import ColorComputeContext
 from css.enums import Property
-from css.computed_style import ComputedStyle
-from dataclasses import dataclass
+from css.computed_value import ComputedValue
 import tkinter
 from typing import Iterator, Optional
 from draw import DrawRect, DrawText, Rect
 from font_cache import get_font
 from html_parser import Element, Text
-from url import URL
 
 BLOCK_ELEMENTS = [
     "html",
@@ -55,9 +55,10 @@ MARGINS = [10, 10, 20, 10, 16]  # left, top, right, bottom, scrollbar padding
 
 
 class Layout:
+
     def __init__(
         self,
-        node: Element | Text | None,
+        node: Node,
         parent: Optional["Layout"],
         previous: Optional["Layout"],
     ):
@@ -67,12 +68,38 @@ class Layout:
         self.children = []
         self.x = self.y = self.width = self.height = None
         self.line_boxes = []  # computed lines to paint from self.children
+        self._computed_style = ComputedValue(get_font())
+        self.apply_computed_styles()
+
+    def apply_computed_styles(self):
+        if not self.node:
+            # for anonymous boxes, copy style from parent
+            if self.parent:
+                self._computed_style = self.parent._computed_style
+                return
+
+            # TODO: anonymous line boxes have neither a DOM node
+
+        computed_style = self.node.computed_style
+        style = self._computed_style
+        if computed_style.font:
+            style.font = computed_style.font
+        color_compute_context = ColorComputeContext.from_element(self.node)
+        style.color = computed_style.computed_color(
+            Property.COLOR, color_compute_context
+        )
+        style.background_color = computed_style.computed_color(
+            Property.BACKGROUND_COLOR, color_compute_context
+        )
+        style.display = computed_style.computed_display()
+        style.line_height = computed_style.computed_line_height()
+        style.white_space_collapse = computed_style.computed_white_space_collapse()
 
     def self_rect(self):
         return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
 
-    def computed_style(self) -> ComputedStyle:
-        return self.node.computed_style if self.node else None
+    def computed_style(self) -> ComputedValue:
+        return self._computed_style
 
     def has_inline_children(self) -> bool:
         return False
@@ -101,11 +128,12 @@ class DocumentLayout(Layout):
 
 
 class BlockLayout(Layout):
+
     def __init__(
         self,
         node: Element | Text,
-        parent: Element | Text | None,
-        previous: Element | Text | None,
+        parent: Layout,
+        previous: Layout,
     ):
         super().__init__(node, parent, previous)
         self.align = "left"  # center or left
@@ -122,9 +150,9 @@ class BlockLayout(Layout):
     def paint(self):
         cmds = []
         if isinstance(self.node, Element):
-            bgcolor = "transparent"  # self.node.computed_style.get("background-color", "transparent")
-            if bgcolor != "transparent":
-                rect = DrawRect(self.self_rect(), bgcolor)
+            bgcolor = self.computed_style().background_color
+            if bgcolor != Color(0, 0, 0, 0):
+                rect = DrawRect(self.self_rect(), bgcolor.to_hex_str()[:7])
                 cmds.append(rect)
 
         return cmds
@@ -138,10 +166,7 @@ class BlockLayout(Layout):
 
 class AnonymousLayout(Layout):
     def __init__(self, parent, previous):
-        super().__init__(None, parent, previous)
-
-    def computed_style(self):
-        return self.parent.node.computed_style
+        super().__init__(parent.node, parent, previous)
 
     def paint(self):
         return []
@@ -292,7 +317,7 @@ def build_inline_layouts(nodes: list[Element | Text], parent) -> list[Layout]:
                 or node.tag not in BLOCK_ELEMENTS
             ):
                 elem = InlineElementLayout(node, parent)
-                elem.children = build_inline_layouts(node.children, parent)
+                elem.children = build_inline_layouts(node.children, elem)
                 res.append(elem)
         else:
             textbox = TextLayout(node, node.text, parent)

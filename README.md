@@ -1,16 +1,21 @@
 # Simple Python Web Browser
 
-Demonstrates low-level HTTP(S) requests using sockets and HTML text extraction with a parser. Renders elements with TKinter. 
+Simple HTTP(S) browser using Python/TKinter, created with the guidance of the amazing [Web Browser Engineering](https://browser.engineering/) textbook! Sports custom HTML and CSS parsers, the latter of which is designed (mostly) in accordance to the csswg spec. No JS or dynamic page updates supported yet (WIP)
+
+Extremely slow to style and layout websites, you have been warned!
 
 ## What it does
 - Performs simple HTTP/HTTPS GET requests (HTTP/1.1).
-- Supports `file://` and `data:` URLs.
-- Supports `view-source:` prefix to show HTML source with angle brackets escaped. (Only for url.py)
+- Additionally supports `file://` and `data:` URLs.
 - Supports chunking and gzip compression.
 - Automatically follows redirects.
+- Parses the majority of HTML features (including `<style>`, `<script>`, `<!--comments-->`, etc).
+- Tokenizes and parses CSS style rules, and matches with a selector engine.
+- Layouts and renders a scrollable site with TKinter.
+- Allows navigation with a URL bar, back/forward buttons, and clickable links. 
 
 ## Requirements
-- Python 3.7+ (f-strings and ssl.create_default_context).
+- Python 3.10+
 - Network access for HTTP/HTTPS.
 
 ## How to run
@@ -36,5 +41,8 @@ python3 browser.py "data:text/plain;base64,SGVsbG8gV29ybGQh"
 python3 browser.py "view-source:http://example.org/"
 ```
 
-## TODO:
-- Source mode with syntax highlighting
+To run individual files in modules (e.g. css/selector_matcher.py), run:
+
+```bash
+python3 -m css.selector_matcher
+```

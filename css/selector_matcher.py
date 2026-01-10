@@ -133,10 +133,12 @@ class SelectorMatcher:
                     return recurse(elem, idx - 1)
 
                 case Combinator.DESCENDANT:
+                    if not self.matches(s, elem):
+                        return False
                     cur = elem.parent
                     while cur:
-                        if self.matches(s, elem):
-                            return recurse(cur, idx - 1)
+                        if recurse(cur, idx - 1):
+                            return True
                         cur = cur.parent
                     return False
 
@@ -214,17 +216,24 @@ if __name__ == "__main__":
 
     html_string = """
     <html>
-        <body>
+        <body class="main">
             <div class="container" rel>
-                <h2>bogus</h2>
-                <h1>title</h1>
+                <span>
+                    <h2>bogus</h2>
+                    <h1>title</h1>
+                </span>
                 <p id="text">Hello World</p>
             </div>
+            <ol>
+                <li>
+                    <a href="wow">true</a>
+                </li>
+            </ol>
         </body>
     </html>
     """
 
-    css_string = "div:has(h1) { color: green; }"
+    css_string = ".main li a { color: green; }"
 
     print(f"Parsing rule: '{css_string}'")
     tokens = Lexer(css_string).parse()

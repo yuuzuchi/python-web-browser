@@ -160,29 +160,24 @@ class StyleComputer:
             if property_is_shorthand(prop) or prop == Property.CUSTOM:
                 continue
 
-            if val := node.specified_style.get(prop):
-                if isinstance(val, KeywordValue) and val.is_css_wide():
-                    # https://drafts.csswg.org/css-cascade-5/#defaulting-keywords
-                    if val.keyword == Keyword.INHERIT:
-                        self.inherit_property(node, prop)
-                    elif val.keyword == Keyword.INITIAL:
-                        self.initial_property(node, prop)
-                    elif val.keyword == Keyword.UNSET:
-                        if property_is_inherited(prop):
-                            self.inherit_property(node, prop)
-                        else:
-                            self.initial_property(node, prop)
-                    elif val.keyword == Keyword.REVERT:
-                        pass
-                    elif val.keyword == Keyword.REVERT_LAYER:
-                        pass
-                        # TODO: need to store origin of each property
+            # https://drafts.csswg.org/css-cascade-5/#defaulting-keywords
+            val = node.specified_style.get(prop)
+            prop_is_inherited = property_is_inherited(prop)
+            inherit = not val and prop_is_inherited
 
-                # if here, node already has prop in specified values, do nothing
+            if isinstance(val, KeywordValue):
+                if val.keyword in (Keyword.INITIAL, Keyword.UNSET):
+                    self.initial_property(node, prop)
+                    continue
 
-            elif property_is_inherited(prop):
+                inherit |= val.keyword == Keyword.INHERIT
+                inherit |= val.keyword == Keyword.UNSET and prop_is_inherited
+                inherit |= (
+                    prop == Property.COLOR and val.keyword == Keyword.CURRENTCOLOR
+                )
+            if inherit:
                 self.inherit_property(node, prop)
-            else:
+            if not node.specified_style.get(prop):
                 self.initial_property(node, prop)
 
     # https://drafts.csswg.org/css-cascade-5/#computed
@@ -214,7 +209,8 @@ class StyleComputer:
                     font_metrics=default_font_metrics,
                     root_font_metrics=default_font_metrics,
                 )
-            )
+            ),
+            node=node,
         )
 
         # compute font first
@@ -452,19 +448,19 @@ if __name__ == "__main__":
 
     html = """
     <html>
-        <body>
-            
-            <h1>Title</h1>
-            <div class="test">
-                <p id="p">p_inside</p>
-                <a href="https://example.com">Link</a>
+        <body class="main">
+            <div class="container" rel>
+                <span>
+                    <h2>bogus</h2>
+                    <h1>title</h1>
+                </span>
+                <p id="text">Hello World</p>
             </div>
-            <ul>
-                <li><i>Item 1</i></li>
-                <li><b>It<i>em</b> 2</i></li>
-            </ul>
-            
-            <pre style="text-wrap-mode: nowrap;"> hello </pre>
+            <ol>
+                <li>
+                    <a href="wow">true</a>
+                </li>
+            </ol>
         </body>
     </html>
     """
@@ -472,20 +468,10 @@ if __name__ == "__main__":
         browser_css = f.read()
 
     user_css = """
-    body h1 {
-        color: red !important;
-        font: normal normal bold smaller/1.5 "Arial";
-    }
+    
+    .main li { font-style: italic; }
+    .main li a { font-style: normal; }
 
-    div.test{
-        color: orange !important;
-        font-size: 1lh;
-        line-height: 1em;
-    }
-
-    #p {
-        color: purple !important;
-    }
     """
 
     url = URL("file:///test.html")
@@ -512,10 +498,4 @@ if __name__ == "__main__":
     from html_parser import print_tree
 
     log(print_tree(doc.document_element))
-    computer.print_tree(
-        prop=[
-            Property.WHITE_SPACE_COLLAPSE,
-            Property.TEXT_WRAP_MODE,
-            Property.WHITE_SPACE_TRIM,
-        ]
-    )
+    computer.print_tree(prop=[Property.FONT_STYLE])
