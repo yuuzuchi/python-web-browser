@@ -1,26 +1,19 @@
-div :has(div) {
-    color:green !important;
+code .kw {
+    color: purple;
 }
 
-.c {
-    display: block;
-}
+/* div.pog[hi *=deow s]:has(h3) {
+    color: white !important;
+} */
 
-.d .b {
-    font: normal normal 700 normal 20px / 1.5 "moo" !important;
-}
 
-.x.z {
-    color: black;
-}
-.meow { /* this should take precedence if tied with h1, since higher specificity */
-    color: gray;
-}
+/* button:not(:disabled) { 
+    font: italic small-caps bold ultra-expanded 16px/1.5 "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        hi: 3.0;
+} */
 
-h1 { 
-    color: black;
-}
 
-div.d1.pogdiv div.d2 p {
-    color:aquamarine;
-}
+/*
+[ComplexSelector(specificity=(0, 0, 1), invalid=True, compound_selectors=[CompoundSelector(specificity=(0, 0, 1), invalid=False, selectors=[TypeSelector(specificity=(0, 0, 1), invalid=False, tag='h1', namespace='')], pseudo_element_chain=[], combinator=<Combinator.NONE: ''>)]), 
+ComplexSelector(specificity=(0, 0, 1), invalid=False, compound_selectors=[CompoundSelector(specificity=(0, 0, 1), invalid=False, selectors=[TypeSelector(specificity=(0, 0, 1), invalid=False, tag='h2', namespace='')], pseudo_element_chain=[], combinator=<Combinator.NONE: ''>)])]
+*/

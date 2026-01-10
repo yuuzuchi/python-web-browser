@@ -1,15 +1,18 @@
+from typing import Literal
 import collections
-import tkinter.font
+from tkinter.font import Font
 import binascii
 
-# try: 
+# try:
 #     import gi
-#     gi.require_version('Pango', '1.0')
-#     gi.require_version('PangoCairo', '1.0')
+
+#     gi.require_version("Pango", "1.0")
+#     gi.require_version("PangoCairo", "1.0")
 #     from gi.repository import Pango, PangoCairo
 #     import cairo
+
 #     _PANGO_AVAILABLE = True
-# except ImportError:
+# except Exception:
 #     _PANGO_AVAILABLE = False
 _PANGO_AVAILABLE = False
 
@@ -30,8 +33,14 @@ def get_width(word, font):
 
 def hash16(s: str) -> int:
     return binascii.crc_hqx(s.encode(), 0)
-        
-def get_font(family="Segoe UI", size=16, style="roman", weight="normal"):
+
+
+def get_font(
+    family="Segoe UI",
+    size=16,
+    style: Literal["italic", "roman"] = "roman",
+    weight: Literal["bold", "normal"] = "normal",
+) -> Font:
     key_int = (
         (min(int(size), 255) & 0xFF) |
         (weight=="bold") << 8 |
@@ -39,7 +48,7 @@ def get_font(family="Segoe UI", size=16, style="roman", weight="normal"):
         (hash16(family) & 0xFFFF) << 10
     )
     if key_int not in _font_cache:
-        font = tkinter.font.Font(family=family,size=int(size),slant=style,weight=weight)
+        font = Font(family=family, size=int(size), slant=style, weight=weight)
         font.id = key_int
         font.cached_metrics = font.metrics()
         if _PANGO_AVAILABLE:
@@ -52,8 +61,9 @@ def get_font(family="Segoe UI", size=16, style="roman", weight="normal"):
                 Pango.Style.ITALIC if style == "italic" else Pango.Style.NORMAL)
             font.pango_font_desc = pango_font_desc
         _font_cache[key_int] = font
-        
+
     return _font_cache[key_int]
+
 
 def pango_measure_text(text: str, font_desc):
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)
