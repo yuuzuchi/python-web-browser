@@ -1,15 +1,15 @@
+from dataclasses import dataclass
+
+
+@dataclass
 class Rect:
-    def __init__(self, left, top, right, bottom):
-        self.left = left
-        self.top = top
-        self.right = right
-        self.bottom = bottom
+    left: int
+    top: int
+    right: int
+    bottom: int
 
     def contains_point(self, x, y):
         return x >= self.left and x < self.right and y >= self.top and y < self.bottom
-
-    def __repr__(self):
-        return f"Rect(left={self.left}, top={self.top}, right={self.right}, bottom={self.bottom})"
 
 
 class DrawText:

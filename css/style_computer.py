@@ -117,7 +117,10 @@ class StyleComputer:
         # parse and add any inline style attributes
         if style := node.attributes.get("style"):
             stylesheet = CSSSyntaxParser().parse_css_style_attribute(
-                style, parse_context=ParseContext(Origin.AUTHOR_ORIGIN)
+                style,
+                parse_context=ParseContext(
+                    Origin.AUTHOR_ORIGIN, node.get_root().owner_document.url
+                ),
             )
             candidate_rules.extend(stylesheet.rules)
             del node.attributes["style"]

@@ -1,6 +1,5 @@
-from ast import Assert
 from url import URL
-from dom import Document, Element, Text, Node
+from dom import Document, Element, Text
 
 SELF_CLOSING_TAGS = [
     "area",
@@ -46,17 +45,6 @@ FORMAT_TAGS = [
 ]
 
 LINK_TAGS = ["a", "area", "link"]
-
-
-def get_document(node: Node) -> Document:
-    while node.parent:
-        node = node.parent
-
-    if hasattr(node, "owner_document"):
-        return node.owner_document
-
-    raise AssertionError("Node has no associated document")
-
 
 class HTMLParser:
 

@@ -48,7 +48,7 @@ class Display:
         return self.is_outside_and_inside() and self.outside == DisplayOutside.BLOCK
 
     def is_inline(self) -> bool:
-        return self.is_outside_and_inside() and self.inside == DisplayOutside.INLINE
+        return self.is_outside_and_inside() and self.outside == DisplayOutside.INLINE
 
     def is_inline_block(self) -> bool:
         return (

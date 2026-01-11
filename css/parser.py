@@ -1,4 +1,5 @@
 # https://www.w3.org/TR/css-syntax-3/#parse-grammar
+from url import URL
 from log import warn
 import collections
 from dataclasses import dataclass, field
@@ -188,7 +189,7 @@ class CSSSyntaxParser:
                 )
             )
             parse_context.source_order += 1
-        return CSSStylesheet(out, parse_context.origin)
+        return CSSStylesheet(out, parse_context.origin, parse_context.absolute_url)
 
     def parse_css_style_attribute(
         self, inp, parse_context: ParseContext
@@ -216,7 +217,7 @@ class CSSSyntaxParser:
             )
         )
         parse_context.source_order += 1
-        return CSSStylesheet(out, parse_context.origin)
+        return CSSStylesheet(out, parse_context.origin, parse_context.absolute_url)
 
     """
     def parse_comma_separated_list(self, inp) -> list[Component | Token]:
@@ -982,7 +983,7 @@ if __name__ == "__main__":
     with open(f, "r") as file:
         lexer = Lexer(file.read())
         tokens = lexer.parse()
-        context = ParseContext(origin=Origin.USER_AGENT)
+        context = ParseContext(origin=Origin.USER_AGENT, absolute_url=URL(""))
         parser = CSSSyntaxParser()
         stylesheet = parser.parse_css_stylesheet(tokens, parse_context=context)
         log(stylesheet)

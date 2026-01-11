@@ -1,3 +1,4 @@
+from __future__ import annotations
 from css.computed_style import ComputedStyle
 from url import URL
 from css.enums import Property
@@ -17,6 +18,14 @@ class Node:
         while cur.parent:
             cur = cur.parent
         return cur
+
+    def get_document(self) -> Document:
+        node = self.get_root()
+
+        if hasattr(node, "owner_document"):
+            return node.owner_document
+
+        raise AssertionError("Node has no associated document")
 
 
 class Text(Node):

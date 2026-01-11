@@ -19,7 +19,7 @@ from css.selectors import (
     PseudoClass,
     Combinator,
 )
-from html_parser import LINK_TAGS, Element, get_document
+from html_parser import LINK_TAGS, Element
 
 
 class SelectorMatcher:
@@ -96,7 +96,7 @@ class SelectorMatcher:
             case PseudoClass.VISITED:
                 # return True
                 if node.tag in LINK_TAGS and "href" in node.attributes:
-                    document = get_document(node)
+                    document = node.get_document()
                     resolved_url = document.url.resolve(node.attributes["href"])
                     return self.history_manager.has_url(resolved_url)
             case _:
@@ -238,7 +238,9 @@ if __name__ == "__main__":
     print(f"Parsing rule: '{css_string}'")
     tokens = Lexer(css_string).parse()
     parser = CSSSyntaxParser()
-    stylesheet = parser.parse_css_stylesheet(tokens, ParseContext(Origin.AUTHOR_ORIGIN))
+    stylesheet = parser.parse_css_stylesheet(
+        tokens, ParseContext(Origin.AUTHOR_ORIGIN, URL(""))
+    )
     complex_selectors = stylesheet.rules[0].selector_list
 
     print(f"Parsed {len(complex_selectors)} complex selectors:")

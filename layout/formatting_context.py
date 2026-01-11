@@ -1,22 +1,18 @@
-from css.enums import Property
-from css.color_compute_context import ColorComputeContext
+from layout.text_fragment import TextFragment
+from layout.break_box import BreakBox
+from layout.tree_builder import flatten
+from layout.line_box import LineBox
+from layout.block_container import BlockContainer
+from layout.box import Box
 from css.enums import WhiteSpaceCollapse
 import re
 import tkinter
 from font_cache import get_width
-from layout import (
-    BlockLayout,
-    BreakLayout,
-    Layout,
-    LineLayout,
-    TextFragment,
-    AnonymousLayout,
-    flatten,
-)
 
 
 class BlockFormattingContext:
-    def __init__(self, block: Layout):
+
+    def __init__(self, block: Box):
         self.block = block
         self.style = block.computed_style()
 
@@ -48,7 +44,7 @@ class BlockFormattingContext:
 
         # format block children
         for child in self.block.children:
-            assert isinstance(child, (BlockLayout, AnonymousLayout))
+            assert isinstance(child, BlockContainer), self.block
             ctx = BlockFormattingContext(child)
             ctx.format()
 
@@ -56,7 +52,8 @@ class BlockFormattingContext:
 
 
 class InlineFormattingContext:
-    def __init__(self, block: Layout):
+
+    def __init__(self, block: Box):
         self.block = block
         self.style = block.computed_style()
 
@@ -73,7 +70,7 @@ class InlineFormattingContext:
         self.out = []
 
     def new_line(self, DOM_reference_node):
-        line = LineLayout(DOM_reference_node)
+        line = LineBox(DOM_reference_node)
         line.x = self.x
         line.y = self.y + self.cy
         line.width = self.available_width
@@ -88,7 +85,7 @@ class InlineFormattingContext:
 
         for layout in flatten(self.block.children):
             style = layout.computed_style()
-            if isinstance(layout, BreakLayout):
+            if isinstance(layout, BreakBox):
                 self.flush_line(layout.node)
             else:
                 font = style.font
@@ -178,7 +175,7 @@ class InlineFormattingContext:
             self.curr_line.height = 0
 
         elif len(self.curr_line.children) == 1 and isinstance(
-            self.curr_line.children[0], BreakLayout
+            self.curr_line.children[0], BreakBox
         ):
             br_font = self.curr_line.children[0].computed_style().font
             self.curr_line.height = br_font.cached_metrics["linespace"]

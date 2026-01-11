@@ -1,3 +1,9 @@
+from layout.box import Box
+from layout.text_fragment import TextFragment
+from layout.block_container import BlockContainer
+from layout.tree_builder import tree_to_fragment_list, paint_tree, tree_to_list
+from layout.root_box import RootBox
+from layout.layout import MARGINS
 from css.enums import Property
 from css.style_computer import StyleComputer
 from css.stylesheet import CSSStylesheet
@@ -10,20 +16,6 @@ import tkinter
 from history import HistoryManager
 from html_parser import HTMLParser, print_tree
 from dom import Element, Text, Document
-from layout import (
-    MARGINS,
-    AnonymousLayout,
-    BlockLayout,
-    DocumentLayout,
-    Layout,
-    TextFragment,
-    TextLayout,
-    paint_tree,
-    print_layout_tree,
-    print_paint,
-    tree_to_fragment_list,
-    tree_to_list,
-)
 from url import URL
 
 
@@ -63,7 +55,7 @@ class Tab:
         self.offset = 0
         self.dirty = True  # render frame
 
-        self.document_layout: DocumentLayout
+        self.document_layout: RootBox
         self.display_list = []
         self.history = [url]
         self.forward_history = []
@@ -73,7 +65,7 @@ class Tab:
 
         self.css_parser = CSSSyntaxParser()
         self.DEFAULT_STYLE_SHEET = self.css_parser.parse_css_stylesheet(
-            open("css/browser.css").read(), ParseContext(origin=Origin.USER_AGENT)
+            open("css/browser.css").read(), ParseContext(Origin.USER_AGENT, self.url)
         )
         self.stylesheets: list[CSSStylesheet] = []
 
@@ -128,7 +120,7 @@ class Tab:
                     print(e)
                 self.stylesheets.append(
                     self.css_parser.parse_css_stylesheet(
-                        body, ParseContext(origin=Origin.AUTHOR_ORIGIN)
+                        body, ParseContext(Origin.AUTHOR_ORIGIN, self.url)
                     )
                 )
 
@@ -148,16 +140,12 @@ class Tab:
         computer.style_tree()
         elapsed_time = time.perf_counter() - start_time
 
-        self.document_layout = DocumentLayout(self.rootnode, self.canvas)
+        self.document_layout = RootBox(self.rootnode, self.canvas)
         # conditional debug output controlled by CLI flags:
         if self.options.get("t"):
             print(print_tree(self.rootnode, source=True))
         if self.options.get("c"):
-            computer.print_tree(
-                prop=[
-                    Property.FONT_STYLE,
-                ]
-            )
+            computer.print_tree(prop=[Property.DISPLAY])
             print(
                 f"style() in{elapsed_time: .6f} seconds, {len(self.stylesheets)} stylesheets"
             )
@@ -337,11 +325,11 @@ class Tab:
     def invalidate(self):
         self.dirty = True
 
-    def get_layout_at_coords(self, x, y) -> BlockLayout | AnonymousLayout | None:
+    def get_layout_at_coords(self, x, y) -> BlockContainer | None:
         objs = []
 
         for obj in tree_to_list(self.document_layout):
-            if not isinstance(obj, (BlockLayout, AnonymousLayout)):
+            if not isinstance(obj, BlockContainer):
                 continue
 
             # layer 1: clicked on a block layout
@@ -357,7 +345,7 @@ class Tab:
             return
         return objs[-1]  # most recently painted object is probably the one clicked on
 
-    def hit_test_block(self, block: Layout, x, y) -> TextFragment | None:
+    def hit_test_block(self, block: Box, x, y) -> TextFragment | None:
         for line in block.line_boxes:
             if y < line.y or y >= line.y + line.height:
                 continue
